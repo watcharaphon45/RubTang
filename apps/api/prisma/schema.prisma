@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum MovementType {
+  RECEIVE
+  ADJUSTMENT
+}
+
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime     @default(now())
+  branches  Branch[]
+  members   Membership[]
+  products  Product[]
+  audits    AuditLog[]
+}
+
+model Branch {
+  id          String             @id @default(uuid()) @db.Uuid
+  tenantId    String             @db.Uuid
+  name        String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  assignments BranchAssignment[]
+  inventory   InventoryBalance[]
+  movements   StockMovement[]
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  displayName  String
+  passwordHash String
+  memberships  Membership[]
+}
+
+model Membership {
+  id          String             @id @default(uuid()) @db.Uuid
+  tenantId    String             @db.Uuid
+  userId      String             @db.Uuid
+  role        Role               @default(CASHIER)
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  user        User               @relation(fields: [userId], references: [id])
+  assignments BranchAssignment[]
+  sessions    Session[]
+  movements   StockMovement[]
+  @@unique([tenantId, userId])
+  @@unique([tenantId, id])
+}
+
+model BranchAssignment {
+  tenantId     String     @db.Uuid
+  membershipId String     @db.Uuid
+  branchId     String     @db.Uuid
+  membership   Membership @relation(fields: [tenantId, membershipId], references: [tenantId, id])
+  branch       Branch     @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  @@id([tenantId, membershipId, branchId])
+}
+
+model Session {
+  tokenHash    String     @id
+  membershipId String     @db.Uuid
+  expiresAt    DateTime
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model Product {
+  id        String             @id @default(uuid()) @db.Uuid
+  tenantId  String             @db.Uuid
+  name      String
+  sku       String
+  barcode   String?
+  price     Decimal            @db.Decimal(12, 2)
+  active    Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  tenant    Tenant             @relation(fields: [tenantId], references: [id])
+  inventory InventoryBalance[]
+  movements StockMovement[]
+  @@unique([tenantId, id])
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+  @@index([tenantId, createdAt])
+}
+
+model InventoryBalance {
+  tenantId String  @db.Uuid
+  branchId String  @db.Uuid
+  productId String @db.Uuid
+  quantity Decimal @default(0) @db.Decimal(14, 3)
+  branch   Branch  @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  product  Product @relation(fields: [tenantId, productId], references: [tenantId, id])
+  @@id([tenantId, branchId, productId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  actorUserId String   @db.Uuid
+  action      String
+  entityId    String
+  newValue    Json
+  oldValue    Json?
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  @@index([tenantId, createdAt])
+}
+
+model StockMovement {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @db.Uuid
+  branchId          String       @db.Uuid
+  productId         String       @db.Uuid
+  actorMembershipId String       @db.Uuid
+  requestId         String       @db.Uuid
+  type              MovementType
+  quantity          Decimal      @db.Decimal(14, 3)
+  balanceBefore     Decimal      @db.Decimal(14, 3)
+  balanceAfter      Decimal      @db.Decimal(14, 3)
+  note              String
+  createdAt         DateTime     @default(now())
+  branch            Branch       @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  product           Product      @relation(fields: [tenantId, productId], references: [tenantId, id])
+  actor             Membership   @relation(fields: [tenantId, actorMembershipId], references: [tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, branchId, createdAt, id])
+  @@index([tenantId, branchId, productId, createdAt])
+}
