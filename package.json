@@ -10,6 +10,7 @@
     "test": "npm run test -w @rubtang/api",
     "test:integration": "npm run test:integration -w @rubtang/api",
     "db:local": "npm run db:local -w @rubtang/api",
+    "db:setup": "npm run db:generate && npm run db:migrate",
     "db:generate": "npm run db:generate -w @rubtang/api",
     "db:migrate": "npm run db:migrate -w @rubtang/api"
   },

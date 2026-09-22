@@ -1,0 +1,18 @@
+{
+  "categories": [
+    { "id": "category-drinks", "name": "เครื่องดื่ม", "products": 2 },
+    { "id": "category-packaging", "name": "บรรจุภัณฑ์", "products": 1 }
+  ],
+  "branches": [
+    { "id": "branch-sukhumvit", "name": "สาขาสุขุมวิท", "address": "สุขุมวิท กรุงเทพฯ", "status": "ACTIVE" },
+    { "id": "branch-siam", "name": "สาขาสยาม", "address": "ปทุมวัน กรุงเทพฯ", "status": "SETUP" }
+  ],
+  "staff": [
+    { "id": "staff-mintra", "name": "มินตรา วัฒนานนท์", "role": "MANAGER", "branchIds": ["branch-sukhumvit"] },
+    { "id": "staff-natcha", "name": "ณัฐชา แสงทอง", "role": "CASHIER", "branchIds": ["branch-sukhumvit", "branch-siam"] }
+  ],
+  "costs": [
+    { "id": "cost-water", "productName": "น้ำดื่ม 600 มล.", "amount": "6.50" },
+    { "id": "cost-coffee", "productName": "กาแฟอเมริกาโน่", "amount": "21.00" }
+  ]
+}

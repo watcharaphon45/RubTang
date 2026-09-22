@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { api, Product } from './api';
+import { AppSelect } from './components/app-select';
 
 type Movement = {
   id: string; type: 'RECEIVE' | 'ADJUSTMENT'; quantity: string; balanceBefore: string; balanceAfter: string;
@@ -28,7 +29,7 @@ export function StockForm({ product, branch, close, saved }: { product: Product;
     <div className="section-heading"><h2 id="stock-title">รับเข้า / ปรับสต็อก</h2><button className="icon-button" aria-label="ปิด" disabled={mutation.isPending} onClick={close}><X /></button></div>
     <p><strong>{product.name}</strong><br /><span className="muted">{branch.name} · คงเหลือล่าสุด {quantity(product.quantity)}</span></p>
     <form onSubmit={submit}><fieldset disabled={locked} className="stock-fields">
-      <label>ประเภทรายการ<select value={type} onChange={e => setType(e.target.value as typeof type)}><option value="RECEIVE">รับเข้าสินค้า</option><option value="ADJUSTMENT">ปรับเพิ่ม / ลดสต็อก</option></select></label>
+      <label>ประเภทรายการ<AppSelect value={type} onChange={e => setType(e.target.value as typeof type)}><option value="RECEIVE">รับเข้าสินค้า</option><option value="ADJUSTMENT">ปรับเพิ่ม / ลดสต็อก</option></AppSelect></label>
       <label>{type === 'RECEIVE' ? 'จำนวนรับเข้า' : 'จำนวนที่ต้องการเพิ่มหรือลด'}<input autoFocus name="quantity" type="number" step="0.001" min={type === 'RECEIVE' ? '0.001' : '-99999999999.999'} max="99999999999.999" required placeholder={type === 'RECEIVE' ? 'เช่น 10' : 'เช่น -2 เพื่อลดลง 2 หน่วย'} /></label>
       <p className="help">{type === 'RECEIVE' ? 'เพิ่มจำนวนเข้าเฉพาะสาขาที่เลือก' : 'ระบุจำนวนที่เปลี่ยนแปลง ไม่ใช่ยอดคงเหลือใหม่ เช่น +5 หรือ -2'}</p>
       <label>เหตุผล / เอกสารอ้างอิง<textarea name="note" required maxLength={500} rows={3} placeholder="เช่น รับสินค้าตามใบส่งของ DN-001" /></label>

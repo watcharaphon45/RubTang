@@ -1,15 +1,35 @@
-import React, { FormEvent, useEffect, useRef, useState } from 'react';
+import React, { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Boxes, Building2, Check, ChevronDown, LogOut, Package, Plus, Search, ShieldCheck, Store, X } from 'lucide-react';
-import { api, ApiError, Product, Profile } from './api';
+import { ArrowLeftRight, ArrowRight, BadgePercent, BarChart3, Boxes, Building, Building2, Check, ChevronDown, ChevronRight, CircleDollarSign, ClipboardList, CreditCard, FileSpreadsheet, FileText, History, LogOut, MessageCircle, Package, Plus, Search, ShieldCheck, ShoppingCart, Store, UserRound, X } from 'lucide-react';
+import { api, ApiError, isMockMode, Product, Profile } from './api';
 import { HistoryDialog, StockForm } from './inventory';
+import { SetupPreview } from './setup-preview';
+import { CheckoutPreview } from './checkout-preview';
+import { SalesHistoryPreview } from './sales-history-preview';
+import { DashboardPreview } from './dashboard-preview';
+import { ReportsPreview } from './reports-preview';
+import { TransferPreview } from './transfer-preview';
+import { PurchaseOrderPreview } from './purchase-order-preview';
+import { CustomerPreview } from './customer-preview';
+import { PromotionPreview } from './promotion-preview';
+import { ShiftPreview } from './shift-preview';
+import { LinePreview } from './line-preview';
+import { SupplierPreview } from './supplier-preview';
+import { AuditPreview } from './audit-preview';
+import { SubscriptionPreview } from './subscription-preview';
+import logo from './assets/logo_rub_tung.png';
+import { AppSelect } from './components/app-select';
 import './styles.css';
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 15_000 } } });
 const currency = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' });
 
-function Brand() { return <div className="brand"><span className="brand-icon"><Store size={23} /></span><div>รับตังค์<span>RUBTANG POS</span></div></div>; }
+function Brand() { return <div className="brand"><img className="brand-logo" src={logo} alt="รับตังค์" /><div>รับตังค์<span>RUBTANG POS</span></div></div>; }
+function SidebarGroup({ title, children, defaultOpen = false }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return <section className={`sidebar-group ${open ? 'open' : ''}`}><button className="sidebar-group-title" onClick={() => setOpen(value => !value)} aria-expanded={open}><span>{open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}{title}</span></button>{open && <div className="sidebar-group-items">{children}</div>}</section>;
+}
 function ErrorMessage({ error }: { error: unknown }) { return error ? <p role="alert" className="error">{error instanceof Error ? error.message : 'เกิดข้อผิดพลาด กรุณาลองใหม่'}</p> : null; }
 
 function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
@@ -54,14 +74,28 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
   const [editProduct, setEditProduct] = useState<Product>();
   const [stockProduct, setStockProduct] = useState<Product>();
   const [showHistory, setShowHistory] = useState(false);
+  const [showSetupPreview, setShowSetupPreview] = useState(false);
+  const [showCheckoutPreview, setShowCheckoutPreview] = useState(false);
+  const [showSalesPreview, setShowSalesPreview] = useState(false);
+  const [showDashboardPreview, setShowDashboardPreview] = useState(false);
+  const [showReportsPreview, setShowReportsPreview] = useState(false);
+  const [showTransferPreview, setShowTransferPreview] = useState(false);
+  const [showPurchaseOrderPreview, setShowPurchaseOrderPreview] = useState(false);
+  const [showCustomerPreview, setShowCustomerPreview] = useState(false);
+  const [showPromotionPreview, setShowPromotionPreview] = useState(false);
+  const [showShiftPreview, setShowShiftPreview] = useState(false);
+  const [showLinePreview, setShowLinePreview] = useState(false);
+  const [showSupplierPreview, setShowSupplierPreview] = useState(false);
+  const [showAuditPreview, setShowAuditPreview] = useState(false);
+  const [showSubscriptionPreview, setShowSubscriptionPreview] = useState(false);
   const branch = profile.branches.find(item => item.id === branchId);
   const [notice, setNotice] = useState('');
   const logoutMutation = useMutation({ mutationFn: logout });
   const products = useQuery({ queryKey: ['products', profile.tenant.id, branchId, query], queryFn: () => api<Product[]>(`/products?${new URLSearchParams({ branchId, search: query })}`), enabled: Boolean(branchId) });
   async function saved() { setShowForm(false); setEditProduct(undefined); setNotice('บันทึกสินค้าเรียบร้อยแล้ว'); await queryClient.invalidateQueries({ queryKey: ['products'] }); }
   async function refreshStock() { await Promise.all([queryClient.invalidateQueries({ queryKey: ['products'] }), queryClient.invalidateQueries({ queryKey: ['movements'] })]); }
-  return <div className="workspace"><aside className="sidebar"><Brand /><div className="shop-card"><span className="shop-avatar">{profile.tenant.name.slice(0, 1)}</span><div><strong>{profile.tenant.name}</strong><small>พื้นที่จัดการร้าน</small></div></div><span className="nav-caption">พื้นที่ทำงาน</span><div className="nav-item active"><Package size={19} />สินค้า</div><div className="sidebar-note"><ShieldCheck size={22} /><strong>เริ่มต้นอย่างเป็นระบบ</strong><p>จัดเตรียมรายการสินค้าของร้าน ก่อนเปิดใช้งานหน้าขาย</p></div><div className="user-card"><span className="avatar">{profile.user.displayName.slice(0, 1)}</span><div><strong>{profile.user.displayName}</strong><small>{profile.role === 'OWNER' ? 'เจ้าของร้าน' : profile.role === 'MANAGER' ? 'ผู้จัดการ' : 'แคชเชียร์'}</small></div><button className="icon-button" aria-label="ออกจากระบบ" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={18} /></button></div></aside>
-    <div className="main-area"><header className="topbar"><span>พื้นที่ทำงาน <span className="divider">/</span> <strong>สินค้า</strong></span><div className="branch-picker"><Building2 size={17} /><select aria-label="สาขา" value={branchId} onChange={e => setBranchId(e.target.value)}>{profile.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select><ChevronDown size={14} /></div></header>
+  return <div className="workspace"><aside className="sidebar"><Brand /><div className="shop-card"><span className="shop-avatar">{profile.tenant.name.slice(0, 1)}</span><div><strong>{profile.tenant.name}</strong><small>พื้นที่จัดการร้าน</small></div></div><span className="nav-caption">พื้นที่ทำงาน</span><div className="nav-item active"><Package size={19} />สินค้า</div>{isMockMode && <><SidebarGroup title="หน้าหลัก" defaultOpen><button className="nav-item nav-button" onClick={() => setShowDashboardPreview(true)}><BarChart3 size={19} />ภาพรวม</button></SidebarGroup><SidebarGroup title="ขายหน้าร้าน" defaultOpen><button className="nav-item nav-button" onClick={() => setShowCheckoutPreview(true)}><ShoppingCart size={19} />หน้าขาย</button><button className="nav-item nav-button" onClick={() => setShowShiftPreview(true)}><CircleDollarSign size={19} />กะเงินสด</button><button className="nav-item nav-button" onClick={() => setShowSalesPreview(true)}><FileText size={19} />ประวัติขาย</button></SidebarGroup><SidebarGroup title="ลูกค้าและการตลาด"><button className="nav-item nav-button" onClick={() => setShowCustomerPreview(true)}><UserRound size={19} />ลูกค้า</button><button className="nav-item nav-button" onClick={() => setShowPromotionPreview(true)}><BadgePercent size={19} />โปรโมชัน</button><button className="nav-item nav-button" onClick={() => setShowLinePreview(true)}><MessageCircle size={19} />LINE OA</button></SidebarGroup><SidebarGroup title="สินค้าและสต็อก"><button className="nav-item nav-button" onClick={() => setShowTransferPreview(true)}><ArrowLeftRight size={19} />โอนสต็อก</button><button className="nav-item nav-button" onClick={() => setShowSupplierPreview(true)}><Building size={19} />ผู้จำหน่าย</button><button className="nav-item nav-button" onClick={() => setShowPurchaseOrderPreview(true)}><ClipboardList size={19} />สั่งซื้อ</button></SidebarGroup><SidebarGroup title="จัดการร้าน"><button className="nav-item nav-button" onClick={() => setShowReportsPreview(true)}><FileSpreadsheet size={19} />รายงาน</button><button className="nav-item nav-button" onClick={() => setShowAuditPreview(true)}><History size={19} />Audit Log</button><button className="nav-item nav-button" onClick={() => setShowSubscriptionPreview(true)}><CreditCard size={19} />แพ็กเกจ</button><button className="nav-item nav-button" onClick={() => setShowSetupPreview(true)}><Building2 size={19} />ข้อมูลตั้งต้น</button></SidebarGroup></>}<div className="sidebar-note"><ShieldCheck size={22} /><strong>เริ่มต้นอย่างเป็นระบบ</strong><p>จัดเตรียมรายการสินค้าของร้าน ก่อนเปิดใช้งานหน้าขาย</p></div><div className="user-card"><span className="avatar">{profile.user.displayName.slice(0, 1)}</span><div><strong>{profile.user.displayName}</strong><small>{profile.role === 'OWNER' ? 'เจ้าของร้าน' : profile.role === 'MANAGER' ? 'ผู้จัดการ' : 'แคชเชียร์'}</small></div><button className="icon-button" aria-label="ออกจากระบบ" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={18} /></button></div></aside>
+    <div className="main-area"><header className="topbar"><span>พื้นที่ทำงาน <span className="divider">/</span> <strong>สินค้า</strong></span><div className="branch-picker"><AppSelect icon={<Building2 size={17} />} aria-label="สาขา" value={branchId} onChange={e => setBranchId(e.target.value)}>{profile.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</AppSelect></div></header>
     <main className="content"><div className="page-heading"><div><span className="eyebrow green">PRODUCT CATALOG</span><h1>สินค้าของร้าน</h1><p className="muted">จัดการรายการสินค้าและตรวจสอบสต็อกแยกตามสาขา</p></div>{profile.role === 'OWNER' && <button className="primary" onClick={() => { setNotice(''); setShowForm(true); }}><Plus size={18} />เพิ่มสินค้า</button>}</div>
       <div className="info-banner"><div className="banner-icon"><Boxes size={26} /></div><div><strong>สินค้าเดียวกัน จัดการได้ทุกสาขา</strong><p>รายการสินค้าใช้ร่วมกันทั้งร้าน ยอดคงเหลือแสดงเฉพาะสาขาที่เลือก</p></div><span className="pill">แยกสต็อกตามสาขา</span></div>
       {notice && <p className="success" role="status"><Check size={16} />{notice}</p>}<ErrorMessage error={logoutMutation.error} />
@@ -71,7 +105,7 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
       </section><footer className="page-footer">RubTang POS <span>พื้นที่ทำงานของ {profile.tenant.name}</span></footer>
     </main></div>{showForm && <ProductForm product={editProduct} close={() => { setShowForm(false); setEditProduct(undefined); }} saved={() => void saved()} />}
     {stockProduct && branch && <StockForm product={stockProduct} branch={branch} close={() => { setStockProduct(undefined); void refreshStock(); }} saved={() => { setStockProduct(undefined); setNotice('บันทึกรายการสต็อกเรียบร้อยแล้ว'); void refreshStock(); }} />}
-    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}
+    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}{showSetupPreview && <SetupPreview close={() => setShowSetupPreview(false)} />}{showCheckoutPreview && <CheckoutPreview close={() => setShowCheckoutPreview(false)} />}{showSalesPreview && <SalesHistoryPreview close={() => setShowSalesPreview(false)} />}{showDashboardPreview && <DashboardPreview close={() => setShowDashboardPreview(false)} />}{showReportsPreview && <ReportsPreview close={() => setShowReportsPreview(false)} />}{showTransferPreview && <TransferPreview close={() => setShowTransferPreview(false)} />}{showPurchaseOrderPreview && <PurchaseOrderPreview close={() => setShowPurchaseOrderPreview(false)} />}{showCustomerPreview && <CustomerPreview close={() => setShowCustomerPreview(false)} />}{showPromotionPreview && <PromotionPreview close={() => setShowPromotionPreview(false)} />}{showShiftPreview && <ShiftPreview close={() => setShowShiftPreview(false)} />}{showLinePreview && <LinePreview close={() => setShowLinePreview(false)} />}{showSupplierPreview && <SupplierPreview close={() => setShowSupplierPreview(false)} />}{showAuditPreview && <AuditPreview close={() => setShowAuditPreview(false)} />}{showSubscriptionPreview && <SubscriptionPreview close={() => setShowSubscriptionPreview(false)} />}
   </div>;
 }
 

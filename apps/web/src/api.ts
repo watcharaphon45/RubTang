@@ -2,7 +2,13 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+export const isMockMode = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+
 export async function api<T>(path: string, body?: unknown): Promise<T> {
+  if (isMockMode) {
+    const { mockApi } = await import('./mock-api');
+    return mockApi<T>(path, body);
+  }
   const response = await fetch(`/api${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     credentials: 'same-origin',

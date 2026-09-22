@@ -49,6 +49,18 @@ npm.cmd run db:migrate
 npm.cmd run dev
 ```
 
+### UI development with mock data (no database)
+
+Copy `apps/web/.env.mock.example` to `apps/web/.env.local`, then run `npm.cmd run dev`.
+The browser uses in-memory demo data for login, products and stock movements; no API or
+PostgreSQL process is started. Do not commit `.env.local` or use this setting in deployment.
+
+### Database command bundle
+
+`npm.cmd run db:setup` generates the Prisma client and applies every committed migration.
+Start either Docker PostgreSQL or `npm.cmd run db:local` first. The individual commands remain
+available as `db:generate` and `db:migrate`.
+
 After updating an existing checkout, run `db:generate` and `db:migrate` to apply the new
 inventory migration before starting the app. The migration preserves existing products.
 
