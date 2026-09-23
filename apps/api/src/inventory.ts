@@ -1,12 +1,16 @@
 import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { MovementType, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { Principal, requireBranch } from './auth';
 import { Database } from './database';
 import { movementSchema, parse } from './validation';
 
 type MovementInput = z.infer<typeof movementSchema>;
-type Replay = Omit<MovementInput, 'quantity'> & { actorMembershipId: string; quantity: Prisma.Decimal };
+type Replay = Omit<MovementInput, 'quantity' | 'type'> & {
+  type: MovementType;
+  actorMembershipId: string;
+  quantity: Prisma.Decimal;
+};
 
 export function assertReplay(existing: Replay, input: MovementInput, principal: Principal) {
   if (existing.branchId !== input.branchId || existing.productId !== input.productId || existing.type !== input.type ||

@@ -12,9 +12,20 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.use(helmet());
   app.use(cookieParser());
+  const allowedOrigins = new Set(
+    (process.env.WEB_ORIGIN ?? '')
+      .split(',')
+      .map(o => o.trim())
+      .filter(Boolean)
+  );
+  if (process.env.NODE_ENV !== 'production') {
+    allowedOrigins.add('http://localhost:5173');
+    allowedOrigins.add('http://127.0.0.1:5173');
+  }
+
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== process.env.WEB_ORIGIN) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !allowedOrigins.has(req.headers.origin ?? '')) {
       res.status(403).json({ message: 'Request origin is not allowed' });
       return;
     }
