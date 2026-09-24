@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
+  Bell,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -16,6 +18,7 @@ import {
   Link2,
   MessageCircle,
   MoreVertical,
+  Package,
   QrCode,
   Receipt,
   RefreshCw,
@@ -23,6 +26,7 @@ import {
   Send,
   Shield,
   Smartphone,
+  TrendingDown,
   Unlink,
   User,
   UserCheck,
@@ -31,11 +35,13 @@ import {
 } from 'lucide-react';
 import {
   Customer,
+  getLineLowStockPreview,
   getLineReceiptLogs,
   getLineSettings,
   linkCustomerLine,
   Profile,
   SaleHistoryItem,
+  sendLineLowStockAlert,
   sendLineReceipt,
   testLineConnection,
   unlinkCustomerLine,
@@ -53,7 +59,7 @@ export function LineDialog({
   const dialog = useRef<HTMLDialogElement>(null);
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<'simulator' | 'settings' | 'customers' | 'logs'>('simulator');
+  const [activeTab, setActiveTab] = useState<'simulator' | 'stock-alert' | 'settings' | 'customers' | 'logs'>('simulator');
 
   // Settings form state
   const [accountName, setAccountName] = useState('');
@@ -63,6 +69,10 @@ export function LineDialog({
   const [channelAccessToken, setChannelAccessToken] = useState('');
   const [autoSendReceipt, setAutoSendReceipt] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState('');
+  const [lowStockAlertEnabled, setLowStockAlertEnabled] = useState(true);
+  const [lowStockThreshold, setLowStockThreshold] = useState(5);
+  const [lowStockTargetUserId, setLowStockTargetUserId] = useState('');
+  const [stockAlertSuccessMessage, setStockAlertSuccessMessage] = useState('');
   const [showSecret, setShowSecret] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [testResult, setTestResult] = useState<{ connected: boolean; message: string; botName?: string } | null>(null);
@@ -101,6 +111,9 @@ export function LineDialog({
       setChannelAccessToken(settingsQuery.data.channelAccessToken || '');
       setAutoSendReceipt(settingsQuery.data.autoSendReceipt ?? true);
       setWelcomeMessage(settingsQuery.data.welcomeMessage || '');
+      setLowStockAlertEnabled(settingsQuery.data.lowStockAlertEnabled ?? true);
+      setLowStockThreshold(settingsQuery.data.lowStockThreshold ?? 5);
+      setLowStockTargetUserId(settingsQuery.data.lowStockTargetUserId || '');
     }
   }, [settingsQuery.data]);
 
@@ -181,6 +194,26 @@ export function LineDialog({
     },
   });
 
+  const lowStockPreviewQuery = useQuery({
+    queryKey: ['line-low-stock-preview', profile.branches[0]?.id, lowStockThreshold],
+    queryFn: () => getLineLowStockPreview(profile.branches[0]?.id, lowStockThreshold),
+    enabled: activeTab === 'stock-alert',
+  });
+
+  const sendLowStockMutation = useMutation({
+    mutationFn: sendLineLowStockAlert,
+    onSuccess: res => {
+      void queryClient.invalidateQueries({ queryKey: ['line-low-stock-preview'] });
+      void queryClient.invalidateQueries({ queryKey: ['line-settings'] });
+      setStockAlertSuccessMessage(
+        res.count > 0
+          ? `ส่งแจ้งเตือนสินค้าใกล้หมด ${res.count} รายการ ไปยัง LINE สำเร็จ (${res.targetUserId || 'Official'})`
+          : (res.message || 'ไม่มีสินค้าที่สต็อกต่ำกว่าเกณฑ์')
+      );
+      setTimeout(() => setStockAlertSuccessMessage(''), 5000);
+    },
+  });
+
   const handleSaveSettings = (e: FormEvent) => {
     e.preventDefault();
     updateSettingsMutation.mutate({
@@ -191,6 +224,9 @@ export function LineDialog({
       channelAccessToken: channelAccessToken || null,
       autoSendReceipt,
       welcomeMessage: welcomeMessage || null,
+      lowStockAlertEnabled,
+      lowStockThreshold: Number(lowStockThreshold) || 5,
+      lowStockTargetUserId: lowStockTargetUserId.trim() || null,
     });
   };
 
@@ -389,6 +425,27 @@ export function LineDialog({
         >
           <Smartphone size={18} color={activeTab === 'simulator' ? '#06C755' : '#64748b'} />
           จำลองหน้าจอมือถือ (Smartphone Simulator)
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('stock-alert')}
+          style={{
+            padding: '14px 20px',
+            border: 'none',
+            background: 'none',
+            borderBottom: activeTab === 'stock-alert' ? '3px solid #dc2626' : '3px solid transparent',
+            color: activeTab === 'stock-alert' ? '#b91c1c' : '#64748b',
+            fontWeight: activeTab === 'stock-alert' ? 700 : 500,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <Bell size={18} color={activeTab === 'stock-alert' ? '#dc2626' : '#64748b'} />
+          แจ้งเตือนสินค้าใกล้หมด (Low Stock Alert)
         </button>
 
         <button
@@ -1026,6 +1083,579 @@ export function LineDialog({
         )}
 
         {/* ========================================================
+            TAB: STOCK ALERT (LOW STOCK VIA LINE OA)
+            ======================================================== */}
+        {activeTab === 'stock-alert' && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(340px, 420px) minmax(360px, 1fr)',
+              gap: '24px',
+              alignItems: 'start',
+            }}
+          >
+            {/* Left Column: Phone Mockup with Low Stock Alert Flex Bubble */}
+            <div
+              style={{
+                width: '100%',
+                maxWidth: '380px',
+                height: '680px',
+                background: '#111827',
+                borderRadius: '44px',
+                padding: '12px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4), inset 0 0 2px 2px rgba(255,255,255,0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                margin: '0 auto',
+                position: 'relative',
+              }}
+            >
+              {/* Dynamic Island */}
+              <div
+                style={{
+                  width: '120px',
+                  height: '24px',
+                  background: '#000000',
+                  borderRadius: '16px',
+                  margin: '0 auto 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#1e293b' }} />
+              </div>
+
+              {/* Phone Screen Container */}
+              <div
+                style={{
+                  flex: 1,
+                  background: '#8c9fad',
+                  borderRadius: '32px',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  position: 'relative',
+                }}
+              >
+                {/* LINE Chat Top Bar */}
+                <div
+                  style={{
+                    background: '#1e2832',
+                    color: '#ffffff',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ArrowLeft size={18} color="#ffffff" />
+                    <div
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        background: '#dc2626',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#ffffff',
+                        fontWeight: 'bold',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      <Bell size={16} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2 }}>
+                        {accountName || 'RubTang Alert Bot'}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                        แจ้งเตือนสต็อกอัตโนมัติ
+                      </div>
+                    </div>
+                  </div>
+                  <MoreVertical size={18} color="#94a3b8" />
+                </div>
+
+                {/* Chat Message Scroll Area */}
+                <div
+                  style={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    padding: '16px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      alignSelf: 'center',
+                      background: 'rgba(0,0,0,0.2)',
+                      color: '#ffffff',
+                      fontSize: '0.675rem',
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                      margin: '4px 0',
+                    }}
+                  >
+                    วันนี้ {new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+
+                  {/* LINE Flex Bubble (Low Stock Warning) */}
+                  <div
+                    style={{
+                      width: '100%',
+                      background: '#ffffff',
+                      borderRadius: '16px',
+                      overflow: 'hidden',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                      border: '1px solid rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    {/* Header */}
+                    <div
+                      style={{
+                        background: '#dc2626',
+                        padding: '14px 16px',
+                        color: '#ffffff',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.5px',
+                          color: '#fee2e2',
+                        }}
+                      >
+                        ⚠️ LOW STOCK ALERT · สินค้าใกล้หมด
+                      </div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 700, marginTop: '2px' }}>
+                        {profile.tenant.name}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#fecaca', marginTop: '2px' }}>
+                        สาขา: {profile.branches[0]?.name || 'สาขาหลัก'} | ต่ำกว่าเกณฑ์{' '}
+                        {lowStockPreviewQuery.data?.totalCount ?? 0} รายการ
+                      </div>
+                    </div>
+
+                    {/* Body */}
+                    <div style={{ padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b' }}>
+                        <span>เกณฑ์แจ้งเตือน:</span>
+                        <span style={{ color: '#0f172a', fontWeight: 600 }}>
+                          &le; {lowStockThreshold} ชิ้น
+                        </span>
+                      </div>
+
+                      <div style={{ height: '1px', background: '#e2e8f0', margin: '10px 0' }} />
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                        {(lowStockPreviewQuery.data?.items?.length ?? 0) === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '16px', color: '#16a34a', fontSize: '0.8rem' }}>
+                            <CheckCircle2 size={24} style={{ margin: '0 auto 6px', display: 'block' }} />
+                            ทุกสินค้ามีสต็อกเพียงพอ (ไม่มีสินค้าใกล้หมด)
+                          </div>
+                        ) : (
+                          lowStockPreviewQuery.data?.items.slice(0, 6).map(it => {
+                            const isOut = it.quantity <= 0;
+                            return (
+                              <div
+                                key={it.productId}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: '0.75rem',
+                                  borderBottom: '1px dashed #f1f5f9',
+                                  paddingBottom: '6px',
+                                }}
+                              >
+                                <div style={{ maxWidth: '170px' }}>
+                                  <div style={{ fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {it.name}
+                                  </div>
+                                  <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                    SKU: {it.sku}
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    background: isOut ? '#fef2f2' : '#fffbeb',
+                                    color: isOut ? '#dc2626' : '#d97706',
+                                    border: `1px solid ${isOut ? '#fecaca' : '#fef3c7'}`,
+                                  }}
+                                >
+                                  {isOut ? 'หมดสต็อก' : `เหลือ ${it.quantity}`}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                        {(lowStockPreviewQuery.data?.items?.length ?? 0) > 6 && (
+                          <div style={{ textAlign: 'center', fontSize: '0.68rem', color: '#64748b', marginTop: '4px' }}>
+                            ...และอีก {(lowStockPreviewQuery.data?.items?.length ?? 0) - 6} รายการ
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div style={{ padding: '12px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                      <div
+                        style={{
+                          background: '#dc2626',
+                          color: '#ffffff',
+                          textAlign: 'center',
+                          padding: '8px',
+                          borderRadius: '8px',
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        เปิดดูสต็อก / สั่งซื้อเพิ่ม
+                      </div>
+                      <div style={{ textAlign: 'center', fontSize: '0.65rem', color: '#94a3b8', marginTop: '6px' }}>
+                        ระบบแจ้งเตือนสต็อกอัตโนมัติ · RubTang POS
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Alert Operations & Threshold Configuration */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {stockAlertSuccessMessage && (
+                <div
+                  style={{
+                    background: '#ecfdf5',
+                    border: '1px solid #6ee7b7',
+                    borderRadius: '8px',
+                    padding: '12px 16px',
+                    color: '#065f46',
+                    fontSize: '0.875rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                  }}
+                >
+                  <CheckCircle2 size={18} color="#059669" />
+                  <span>{stockAlertSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* Status summary cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr 1fr',
+                  gap: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                    สินค้าใกล้หมดทั้งหมด
+                  </span>
+                  <strong style={{ fontSize: '1.4rem', color: (lowStockPreviewQuery.data?.totalCount ?? 0) > 0 ? '#dc2626' : '#16a34a' }}>
+                    {lowStockPreviewQuery.data?.totalCount ?? 0}
+                    <span style={{ fontSize: '0.8rem', fontWeight: 400, color: '#64748b', marginLeft: '4px' }}>รายการ</span>
+                  </strong>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                    สินค้าหมดสต็อก (0 ชิ้น)
+                  </span>
+                  <strong style={{ fontSize: '1.4rem', color: (lowStockPreviewQuery.data?.outOfStockCount ?? 0) > 0 ? '#b91c1c' : '#16a34a' }}>
+                    {lowStockPreviewQuery.data?.outOfStockCount ?? 0}
+                    <span style={{ fontSize: '0.8rem', fontWeight: 400, color: '#64748b', marginLeft: '4px' }}>รายการ</span>
+                  </strong>
+                </div>
+
+                <div
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                    แจ้งเตือนล่าสุด
+                  </span>
+                  <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 600, marginTop: '4px' }}>
+                    {settingsQuery.data?.lowStockLastAlertAt
+                      ? new Date(settingsQuery.data.lowStockLastAlertAt).toLocaleString('th-TH', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'ยังไม่เคยส่ง'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Alert Actions Box */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>
+                      ส่งการแจ้งเตือนสต็อกต่ำ (Push Alert to LINE)
+                    </h3>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                      ยิงข้อความ LINE Flex Message ไปยัง LINE บัญชีผู้จัดการหรือกลุ่มร้านค้าทันที
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={sendLowStockMutation.isPending || (lowStockPreviewQuery.data?.totalCount ?? 0) === 0}
+                    onClick={() => {
+                      sendLowStockMutation.mutate({
+                        branchId: profile.branches[0]?.id,
+                        threshold: lowStockThreshold,
+                        targetLineUserId: lowStockTargetUserId.trim() || undefined,
+                      });
+                    }}
+                    style={{
+                      background: '#dc2626',
+                      borderColor: '#dc2626',
+                      padding: '10px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '0.9rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <Send size={16} />
+                    {sendLowStockMutation.isPending ? 'กำลังส่งแจ้งเตือน...' : 'ส่งแจ้งเตือน LINE เดี๋ยวนี้'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Settings Configuration Card */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px',
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>
+                  ตั้งค่าเกณฑ์การแจ้งเตือน (Alert Settings)
+                </h3>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.875rem', color: '#0f172a', display: 'block' }}>
+                      เปิดใช้งานการแจ้งเตือนสต็อกอัตโนมัติ
+                    </strong>
+                    <span style={{ fontSize: '0.785rem', color: '#64748b' }}>
+                      ระบบจะตรวจจับสินค้าคงคลังและแจ้งเตือนเมื่อสินค้าลดลงถึงเกณฑ์ที่กำหนด
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={lowStockAlertEnabled}
+                    onChange={e => setLowStockAlertEnabled(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      เกณฑ์สต็อกต่ำ (ชิ้น)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={999}
+                      value={lowStockThreshold}
+                      onChange={e => setLowStockThreshold(Number(e.target.value) || 1)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.875rem',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                      LINE User ID / Group ID ผู้รับการแจ้งเตือน
+                    </label>
+                    <input
+                      type="text"
+                      value={lowStockTargetUserId}
+                      onChange={e => setLowStockTargetUserId(e.target.value)}
+                      placeholder="เช่น U1a2b3c4d... หรือปล่อยว่างเพื่อใช้ค่าเริ่มต้น"
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '0.875rem',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={updateSettingsMutation.isPending}
+                    onClick={() => {
+                      updateSettingsMutation.mutate({
+                        accountName,
+                        basicId: basicId || null,
+                        channelId: channelId || null,
+                        channelSecret: channelSecret || null,
+                        channelAccessToken: channelAccessToken || null,
+                        autoSendReceipt,
+                        welcomeMessage: welcomeMessage || null,
+                        lowStockAlertEnabled,
+                        lowStockThreshold: Number(lowStockThreshold) || 5,
+                        lowStockTargetUserId: lowStockTargetUserId.trim() || null,
+                      });
+                    }}
+                    style={{ background: '#059669', borderColor: '#059669', padding: '8px 16px', fontSize: '0.85rem' }}
+                  >
+                    <Check size={14} />
+                    {updateSettingsMutation.isPending ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่าสต็อก'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Items List Table */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#0f172a' }}>
+                  รายการสินค้าที่เข้าเกณฑ์ใกล้หมด ({lowStockPreviewQuery.data?.totalCount ?? 0} รายการ)
+                </h3>
+
+                {(lowStockPreviewQuery.data?.items?.length ?? 0) === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', textAlign: 'center', padding: '24px 0' }}>
+                    ไม่มีรายการสินค้าที่คงเหลือต่ำกว่าหรือเท่ากับ {lowStockThreshold} ชิ้น
+                  </p>
+                ) : (
+                  <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 10px' }}>ชื่อสินค้า</th>
+                          <th style={{ padding: '8px 10px' }}>SKU</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>คงเหลือ</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>สถานะ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lowStockPreviewQuery.data?.items.map(it => {
+                          const isOut = it.quantity <= 0;
+                          return (
+                            <tr key={it.productId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>
+                                {it.name}
+                              </td>
+                              <td style={{ padding: '8px 10px', color: '#64748b' }}>
+                                {it.sku}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  color: isOut ? '#dc2626' : '#d97706',
+                                }}
+                              >
+                                {it.quantity} ชิ้น
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '10px',
+                                    fontSize: '0.725rem',
+                                    fontWeight: 700,
+                                    background: isOut ? '#fef2f2' : '#fffbeb',
+                                    color: isOut ? '#dc2626' : '#d97706',
+                                  }}
+                                >
+                                  {isOut ? 'หมดสต็อก' : 'ใกล้หมด'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
             TAB 2: CONNECTION & SETTINGS
             ======================================================== */}
         {activeTab === 'settings' && (
@@ -1244,6 +1874,107 @@ export function LineDialog({
                     />
                   </span>
                 </label>
+              </div>
+
+              {/* Low Stock Notification Toggle & Settings */}
+              <div
+                style={{
+                  padding: '14px',
+                  borderRadius: '8px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.9rem', color: '#0f172a', display: 'block' }}>
+                      แจ้งเตือนสินค้าใกล้หมดอัตโนมัติ (Low Stock Alert)
+                    </strong>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                      ส่งการแจ้งเตือน LINE Flex Message เมื่อสต็อกสินค้าลดลงถึงเกณฑ์ที่กำหนด
+                    </span>
+                  </div>
+                  <label style={{ position: 'relative', display: 'inline-block', width: '48px', height: '24px' }}>
+                    <input
+                      type="checkbox"
+                      checked={lowStockAlertEnabled}
+                      onChange={e => setLowStockAlertEnabled(e.target.checked)}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        cursor: 'pointer',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: lowStockAlertEnabled ? '#dc2626' : '#cbd5e1',
+                        borderRadius: '24px',
+                        transition: '0.2s',
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: 'absolute',
+                          content: '',
+                          height: '18px',
+                          width: '18px',
+                          left: lowStockAlertEnabled ? '26px' : '4px',
+                          bottom: '3px',
+                          background: 'white',
+                          borderRadius: '50%',
+                          transition: '0.2s',
+                        }}
+                      />
+                    </span>
+                  </label>
+                </div>
+
+                {lowStockAlertEnabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '12px', marginTop: '4px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                        เกณฑ์สต็อกต่ำ (ชิ้น)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={999}
+                        value={lowStockThreshold}
+                        onChange={e => setLowStockThreshold(Number(e.target.value) || 1)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                        LINE User ID / Group ID ผู้รับแจ้งเตือนสต็อก
+                      </label>
+                      <input
+                        type="text"
+                        value={lowStockTargetUserId}
+                        onChange={e => setLowStockTargetUserId(e.target.value)}
+                        placeholder="เช่น U123... (เว้นว่างไว้จะส่งไปยังแอดมิน)"
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Welcome Message */}

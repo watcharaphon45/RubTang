@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaClient, LineReceiptStatus } from '@prisma/client';
 import { Principal } from './auth';
+import { Database } from './database';
 
 export interface UpdateLineSettingsPayload {
   accountName: string;
@@ -17,6 +19,9 @@ export interface UpdateLineSettingsPayload {
   welcomeMessage?: string | null;
   qrCodeUrl?: string | null;
   active?: boolean;
+  lowStockAlertEnabled?: boolean;
+  lowStockThreshold?: number;
+  lowStockTargetUserId?: string | null;
 }
 
 export interface LinkCustomerLinePayload {
@@ -43,7 +48,7 @@ export interface LineFlexBubbleMessage {
 
 @Injectable()
 export class LineService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(@Inject(Database) private readonly prisma: Database) {}
 
   private requireManagerOrOwner(principal: Principal) {
     if (principal.role !== 'OWNER' && principal.role !== 'MANAGER') {
@@ -76,6 +81,10 @@ export class LineService {
         welcomeMessage: 'ยินดีต้อนรับสู่ร้านของเราระบบ E-Receipt และสะสมแต้ม',
         qrCodeUrl: 'https://qr-official.line.me/gs/M_rubtang_GW.png',
         active: false,
+        lowStockAlertEnabled: true,
+        lowStockThreshold: 5,
+        lowStockTargetUserId: null,
+        lowStockLastAlertAt: null,
         isConfigured: false,
       };
     }
@@ -104,6 +113,9 @@ export class LineService {
     const welcomeMessage = payload.welcomeMessage?.trim() || null;
     const qrCodeUrl = payload.qrCodeUrl?.trim() || null;
     const active = payload.active !== undefined ? payload.active : true;
+    const lowStockAlertEnabled = payload.lowStockAlertEnabled !== undefined ? payload.lowStockAlertEnabled : true;
+    const lowStockThreshold = payload.lowStockThreshold !== undefined ? payload.lowStockThreshold : 5;
+    const lowStockTargetUserId = payload.lowStockTargetUserId?.trim() || null;
 
     const updated = await this.prisma.lineOaSettings.upsert({
       where: { tenantId: principal.tenantId },
@@ -118,6 +130,9 @@ export class LineService {
         welcomeMessage,
         qrCodeUrl,
         active,
+        lowStockAlertEnabled,
+        lowStockThreshold,
+        lowStockTargetUserId,
       },
       update: {
         accountName: payload.accountName.trim(),
@@ -129,6 +144,9 @@ export class LineService {
         welcomeMessage,
         qrCodeUrl,
         active,
+        lowStockAlertEnabled,
+        lowStockThreshold,
+        lowStockTargetUserId,
       },
     });
 
@@ -144,6 +162,9 @@ export class LineService {
           basicId: updated.basicId,
           autoSendReceipt: updated.autoSendReceipt,
           active: updated.active,
+          lowStockAlertEnabled: updated.lowStockAlertEnabled,
+          lowStockThreshold: updated.lowStockThreshold,
+          lowStockTargetUserId: updated.lowStockTargetUserId,
           hasToken: Boolean(updated.channelAccessToken),
         },
       },
@@ -708,4 +729,424 @@ export class LineService {
       offset,
     };
   }
+
+  /**
+   * สร้างโครงสร้าง LINE Flex Message Bubble Container สำหรับแจ้งเตือนสินค้าใกล้หมด (Low Stock Alert)
+   */
+  buildFlexLowStockAlert(
+    items: Array<{
+      productId: string;
+      name: string;
+      sku: string;
+      branchName?: string;
+      quantity: number;
+      reorderPoint?: number | null;
+    }>,
+    branchName: string,
+    threshold: number,
+    tenantName: string
+  ): LineFlexBubbleMessage {
+    const formattedDate = new Date().toLocaleString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const itemRows = items.slice(0, 8).map(item => {
+      const isOut = item.quantity <= 0;
+      return {
+        type: 'box',
+        layout: 'horizontal',
+        margin: 'md',
+        alignItems: 'center',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            flex: 4,
+            contents: [
+              {
+                type: 'text',
+                text: item.name,
+                size: 'xs',
+                weight: 'bold',
+                color: '#1e293b',
+                wrap: true,
+              },
+              {
+                type: 'text',
+                text: `SKU: ${item.sku}${item.reorderPoint ? ` (เกณฑ์: ${item.reorderPoint})` : ''}`,
+                size: 'xxs',
+                color: '#64748b',
+              },
+            ],
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            flex: 2,
+            alignItems: 'flex-end',
+            contents: [
+              {
+                type: 'text',
+                text: isOut ? 'หมดสต็อก' : `เหลือ ${item.quantity}`,
+                size: 'xs',
+                weight: 'bold',
+                color: isOut ? '#dc2626' : '#d97706',
+                align: 'end',
+              },
+              {
+                type: 'text',
+                text: isOut ? '0 ชิ้น' : `${item.quantity} ชิ้น`,
+                size: 'xxs',
+                color: '#94a3b8',
+                align: 'end',
+              },
+            ],
+          },
+        ],
+      };
+    });
+
+    const hasMore = items.length > 8;
+
+    const bubble: any = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#dc2626',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'text',
+            text: '⚠️ LOW STOCK ALERT · แจ้งเตือนสินค้าใกล้หมด',
+            color: '#fee2e2',
+            size: 'xxs',
+            weight: 'bold',
+            letterSpacing: '0.5px',
+          },
+          {
+            type: 'text',
+            text: tenantName,
+            color: '#ffffff',
+            size: 'lg',
+            weight: 'bold',
+            margin: 'sm',
+          },
+          {
+            type: 'text',
+            text: `สาขา: ${branchName} | พบสินค้าต่ำกว่าเกณฑ์ ${items.length} รายการ`,
+            color: '#fecaca',
+            size: 'xs',
+            margin: 'xs',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              { type: 'text', text: 'เวลาตรวจสอบ:', size: 'xxs', color: '#64748b', flex: 2 },
+              { type: 'text', text: formattedDate, size: 'xxs', color: '#0f172a', flex: 3, align: 'end' },
+            ],
+          },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            margin: 'xs',
+            contents: [
+              { type: 'text', text: 'เกณฑ์แจ้งเตือน:', size: 'xxs', color: '#64748b', flex: 2 },
+              { type: 'text', text: `น้อยกว่าหรือเท่ากับ ${threshold} ชิ้น`, size: 'xxs', color: '#0f172a', flex: 3, align: 'end' },
+            ],
+          },
+          { type: 'separator', margin: 'md', color: '#e2e8f0' },
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'md',
+            contents: itemRows,
+          },
+          ...(hasMore
+            ? [
+                {
+                  type: 'text',
+                  text: `...และสินค้าใกล้หมดอื่นๆ อีก ${items.length - 8} รายการ`,
+                  size: 'xxs',
+                  color: '#64748b',
+                  align: 'center',
+                  margin: 'md',
+                },
+              ]
+            : []),
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          {
+            type: 'button',
+            action: {
+              type: 'uri',
+              label: 'เปิดดูสต็อก / สั่งซื้อเพิ่ม',
+              uri: 'https://rubtang.pos/inventory',
+            },
+            style: 'primary',
+            color: '#dc2626',
+            height: 'sm',
+          },
+          {
+            type: 'text',
+            text: 'ระบบแจ้งเตือนสต็อกอัตโนมัติ · RubTang POS',
+            size: 'xxs',
+            color: '#94a3b8',
+            align: 'center',
+            margin: 'sm',
+          },
+        ],
+      },
+    };
+
+    return {
+      type: 'flex',
+      altText: `⚠️ แจ้งเตือนสินค้าใกล้หมด ${items.length} รายการ (${branchName})`,
+      contents: bubble,
+    };
+  }
+
+  /**
+   * ดึงรายการสินค้าสต็อกต่ำและ Flex Message ตัวอย่าง
+   */
+  async getLowStockPreview(principal: Principal, branchId?: string, customThreshold?: number) {
+    const settings = await this.prisma.lineOaSettings.findUnique({
+      where: { tenantId: principal.tenantId },
+    });
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: principal.tenantId },
+    });
+
+    const threshold = customThreshold ?? settings?.lowStockThreshold ?? 5;
+    const targetBranchId = branchId || (principal.role !== 'OWNER' ? principal.branchIds[0] : undefined);
+
+    let branchName = 'ทุกสาขา (รวม)';
+    if (targetBranchId) {
+      const b = await this.prisma.branch.findUnique({ where: { id: targetBranchId } });
+      if (b) branchName = b.name;
+    }
+
+    const balances = await this.prisma.inventoryBalance.findMany({
+      where: {
+        tenantId: principal.tenantId,
+        ...(targetBranchId ? { branchId: targetBranchId } : principal.role !== 'OWNER' ? { branchId: { in: principal.branchIds } } : {}),
+        product: { active: true },
+      },
+      include: {
+        product: { select: { id: true, name: true, sku: true, reorderPoint: true, price: true } },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: { quantity: 'asc' },
+    });
+
+    const lowStockItems = balances
+      .filter(b => {
+        const itemThreshold = b.product.reorderPoint !== null && b.product.reorderPoint !== undefined
+          ? Number(b.product.reorderPoint)
+          : threshold;
+        return Number(b.quantity) <= itemThreshold;
+      })
+      .map(b => ({
+        productId: b.product.id,
+        name: b.product.name,
+        sku: b.product.sku,
+        branchId: b.branchId,
+        branchName: b.branch.name,
+        quantity: Number(b.quantity),
+        reorderPoint: b.product.reorderPoint ? Number(b.product.reorderPoint) : null,
+        price: Number(b.product.price),
+      }));
+
+    const flexMessage = this.buildFlexLowStockAlert(
+      lowStockItems,
+      branchName,
+      threshold,
+      tenant?.name || 'ร้านรับตังค์'
+    );
+
+    return {
+      threshold,
+      branchId: targetBranchId || null,
+      branchName,
+      items: lowStockItems,
+      totalCount: lowStockItems.length,
+      outOfStockCount: lowStockItems.filter(i => i.quantity <= 0).length,
+      flexMessage,
+      settings: {
+        lowStockAlertEnabled: settings?.lowStockAlertEnabled ?? true,
+        lowStockThreshold: settings?.lowStockThreshold ?? 5,
+        lowStockTargetUserId: settings?.lowStockTargetUserId ?? null,
+        lowStockLastAlertAt: settings?.lowStockLastAlertAt ?? null,
+      },
+    };
+  }
+
+  /**
+   * ส่งข้อความแจ้งเตือนสินค้าใกล้หมดเข้า LINE OA
+   */
+  async sendLowStockAlert(
+    principal: Principal,
+    payload?: { branchId?: string; targetLineUserId?: string; threshold?: number }
+  ) {
+    this.requireManagerOrOwner(principal);
+
+    const settings = await this.prisma.lineOaSettings.findUnique({
+      where: { tenantId: principal.tenantId },
+    });
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: principal.tenantId },
+    });
+
+    const threshold = payload?.threshold ?? settings?.lowStockThreshold ?? 5;
+    const targetBranchId = payload?.branchId || (principal.role !== 'OWNER' ? principal.branchIds[0] : undefined);
+
+    let branchName = 'ทุกสาขา';
+    if (targetBranchId) {
+      const b = await this.prisma.branch.findUnique({ where: { id: targetBranchId } });
+      if (b) branchName = b.name;
+    }
+
+    const balances = await this.prisma.inventoryBalance.findMany({
+      where: {
+        tenantId: principal.tenantId,
+        ...(targetBranchId ? { branchId: targetBranchId } : principal.role !== 'OWNER' ? { branchId: { in: principal.branchIds } } : {}),
+        product: { active: true },
+      },
+      include: {
+        product: { select: { id: true, name: true, sku: true, reorderPoint: true } },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: { quantity: 'asc' },
+    });
+
+    const lowStockItems = balances
+      .filter(b => {
+        const itemThreshold = b.product.reorderPoint !== null && b.product.reorderPoint !== undefined
+          ? Number(b.product.reorderPoint)
+          : threshold;
+        return Number(b.quantity) <= itemThreshold;
+      })
+      .map(b => ({
+        productId: b.product.id,
+        name: b.product.name,
+        sku: b.product.sku,
+        branchName: b.branch.name,
+        quantity: Number(b.quantity),
+        reorderPoint: b.product.reorderPoint ? Number(b.product.reorderPoint) : null,
+      }));
+
+    if (lowStockItems.length === 0) {
+      return {
+        success: true,
+        count: 0,
+        message: 'ไม่มีรายการสินค้าที่สต็อกต่ำกว่าเกณฑ์ในขณะนี้',
+      };
+    }
+
+    const flexMessage = this.buildFlexLowStockAlert(
+      lowStockItems,
+      branchName,
+      threshold,
+      tenant?.name || 'ร้านรับตังค์'
+    );
+
+    const targetUserId =
+      payload?.targetLineUserId?.trim() ||
+      settings?.lowStockTargetUserId?.trim() ||
+      'U_demo_manager_line_user';
+
+    let status = 'SENT';
+    let errorMessage: string | null = null;
+
+    if (
+      settings?.channelAccessToken &&
+      !settings.channelAccessToken.startsWith('mock_') &&
+      settings.channelAccessToken !== 'test_token' &&
+      !targetUserId.startsWith('U_demo_')
+    ) {
+      try {
+        const lineResponse = await fetch('https://api.line.me/v2/bot/message/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${settings.channelAccessToken}`,
+          },
+          body: JSON.stringify({
+            to: targetUserId,
+            messages: [flexMessage],
+          }),
+        });
+
+        if (!lineResponse.ok) {
+          const errBody = await lineResponse.json().catch(() => null);
+          status = 'FAILED';
+          errorMessage = errBody?.message || `LINE API error ${lineResponse.status}`;
+        }
+      } catch (err: any) {
+        status = 'FAILED';
+        errorMessage = err.message || 'Network error during LINE push';
+      }
+    }
+
+    // Update lowStockLastAlertAt
+    await this.prisma.lineOaSettings.upsert({
+      where: { tenantId: principal.tenantId },
+      create: {
+        tenantId: principal.tenantId,
+        accountName: tenant?.name ? `${tenant.name} Official` : 'RubTang LINE Official',
+        lowStockLastAlertAt: new Date(),
+      },
+      update: {
+        lowStockLastAlertAt: new Date(),
+      },
+    });
+
+    // Create Audit Log
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: principal.tenantId,
+        actorUserId: principal.userId,
+        action: 'LINE_LOW_STOCK_ALERT_SENT',
+        entityId: targetBranchId || principal.tenantId,
+        newValue: {
+          itemCount: lowStockItems.length,
+          branchName,
+          threshold,
+          targetUserId,
+          status,
+          errorMessage,
+        },
+      },
+    });
+
+    return {
+      success: status === 'SENT',
+      count: lowStockItems.length,
+      targetUserId,
+      status,
+      errorMessage,
+      flexMessage,
+    };
+  }
 }
+

@@ -65,6 +65,7 @@ export class BranchStaffService {
         assignments: {
           include: { branch: { select: { id: true, name: true } } },
         },
+        position: { select: { id: true, code: true, name: true } },
       },
       orderBy: { id: 'asc' },
     });
@@ -74,6 +75,7 @@ export class BranchStaffService {
       displayName: m.user.displayName,
       email: m.user.email,
       role: m.role,
+      position: m.position,
       branches: m.assignments.map(a => a.branch),
     }));
   }

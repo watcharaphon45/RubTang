@@ -31,6 +31,7 @@ import {
   SupplierData,
 } from './api';
 import { AppSelect } from './components/app-select';
+import { DynamicStatusBadge } from './components/status-badge';
 
 const money = new Intl.NumberFormat('th-TH', {
   style: 'currency',
@@ -441,18 +442,19 @@ export function PurchaseOrderDialog({
                     <div style={{ flex: '1.2 1 220px', minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '4px' }}>
                         <strong style={{ fontSize: '14px', color: '#0f172a' }}>{po.poNumber}</strong>
-                        <span
+                        <DynamicStatusBadge
+                          domain="PURCHASE_ORDER"
+                          code={po.status}
+                          fallbackLabel={conf.label}
+                          fallbackBg={conf.bg}
+                          fallbackColor={conf.color}
                           style={{
                             fontSize: '11px',
                             padding: '2px 8px',
                             borderRadius: '4px',
-                            background: conf.bg,
-                            color: conf.color,
                             fontWeight: 600,
                           }}
-                        >
-                          {conf.label}
-                        </span>
+                        />
                       </div>
                       <div style={{ fontSize: '12px', color: '#475569' }}>
                         คู่ค้า: <strong>{po.supplierName}</strong> · ส่งที่: <strong>{po.branchName}</strong>
@@ -757,20 +759,21 @@ export function PurchaseOrderDialog({
                 <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a' }}>
                   ใบสั่งซื้อ {poDetailQuery.data.poNumber}
                 </h3>
-                <span
+                <DynamicStatusBadge
+                  domain="PURCHASE_ORDER"
+                  code={poDetailQuery.data.status}
+                  fallbackLabel={statusConfig[poDetailQuery.data.status]?.label}
+                  fallbackBg={statusConfig[poDetailQuery.data.status]?.bg}
+                  fallbackColor={statusConfig[poDetailQuery.data.status]?.color}
                   style={{
                     fontSize: '11px',
                     padding: '2px 8px',
                     borderRadius: '4px',
-                    background: statusConfig[poDetailQuery.data.status]?.bg,
-                    color: statusConfig[poDetailQuery.data.status]?.color,
                     fontWeight: 600,
-                    display: 'inline-block',
+                    display: 'inline-flex',
                     marginTop: '4px',
                   }}
-                >
-                  {statusConfig[poDetailQuery.data.status]?.label}
-                </span>
+                />
               </div>
               <button
                 type="button"

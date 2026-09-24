@@ -5,8 +5,8 @@
  */
 
 export interface BarcodeOptions {
-  width?: number; // Total width in px or viewBox width
-  height?: number; // Total height in px
+  width?: number;
+  height?: number;
   displayValue?: boolean;
   fontSize?: number;
   barColor?: string;
@@ -43,7 +43,6 @@ export function calculateEan13Checksum(first12Digits: string): number {
   let sum = 0;
   for (let i = 0; i < 12; i++) {
     const digit = parseInt(first12Digits[i], 10) || 0;
-    // Odd index in 1-based (0, 2, 4...) * 1, even index in 1-based (1, 3, 5...) * 3
     sum += i % 2 === 0 ? digit : digit * 3;
   }
   return (10 - (sum % 10)) % 10;
@@ -126,7 +125,6 @@ export function generateEan13Pattern(code: string): string | null {
 // Code 128 Engine (Subset B / General Retail)
 // ==========================================
 
-// Standard 107 Code 128 Patterns (elements represented by bar/space widths)
 const CODE128_PATTERNS = [
   '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213', // 0-9
   '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132', // 10-19
@@ -153,38 +151,32 @@ function widthsToModules(widths: string): string {
 }
 
 export function generateCode128Pattern(text: string): string {
-  // Start Code B is index 104
   const startCode = 104;
   const values: number[] = [startCode];
 
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    // ASCII 32 to 127 map to Code 128B values 0 to 95
     if (code >= 32 && code <= 126) {
       values.push(code - 32);
     } else {
-      values.push(63); // Fallback '?'
+      values.push(63);
     }
   }
 
-  // Calculate Checksum
   let checksum = values[0];
   for (let i = 1; i < values.length; i++) {
     checksum += values[i] * i;
   }
   const checkDigit = checksum % 103;
   values.push(checkDigit);
-
-  // Stop character is index 106
   values.push(106);
 
-  // Build binary module string
-  let pattern = '0000000000'; // 10 module quiet zone
+  let pattern = '0000000000';
   for (const val of values) {
     const widths = CODE128_PATTERNS[val];
     pattern += widthsToModules(widths);
   }
-  pattern += '0000000000'; // 10 module quiet zone
+  pattern += '0000000000';
 
   return pattern;
 }
@@ -210,7 +202,6 @@ export function renderBarcodeSvg(
   const totalWidth = pattern.length * moduleWidth;
   const barHeight = displayValue ? height - (fontSize + 6) : height;
 
-  // Build rects for consecutive 1s
   let rects = '';
   let inBar = false;
   let startX = 0;
@@ -247,10 +238,6 @@ export function renderBarcodeSvg(
   </svg>`;
 }
 
-/**
- * Universal Barcode Generator
- * Checks if input is valid EAN-13, otherwise falls back gracefully to Code 128.
- */
 export function generateBarcodeSvg(
   code: string,
   options: BarcodeOptions & { format?: 'auto' | 'code128' | 'ean13' } = {}
@@ -266,7 +253,6 @@ export function generateBarcodeSvg(
     }
   }
 
-  // Fallback / standard to Code 128
   const code128Pattern = generateCode128Pattern(clean);
   return renderBarcodeSvg(code128Pattern, clean, options);
 }

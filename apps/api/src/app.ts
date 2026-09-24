@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Module, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Module, Param, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { Response } from 'express';
@@ -22,7 +22,10 @@ import { PromptPayService } from './promptpay';
 import { AuditService } from './audit';
 import { LineService } from './line';
 import { RefundService } from './refund';
-import { parse, auditQuerySchema, updateLineSettingsSchema, linkCustomerLineSchema, sendLineReceiptSchema, lineReceiptLogsQuerySchema, createSaleReturnSchema, returnsQuerySchema } from './validation';
+import { StatusService } from './status';
+import { MenuService } from './menu';
+import { PositionService } from './position';
+import { parse, auditQuerySchema, statusQuerySchema, updateLineSettingsSchema, linkCustomerLineSchema, sendLineReceiptSchema, sendLowStockAlertSchema, lineReceiptLogsQuerySchema, createSaleReturnSchema, returnsQuerySchema } from './validation';
 
 @Controller()
 class AppController {
@@ -47,6 +50,9 @@ class AppController {
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(LineService) private readonly line: LineService,
     @Inject(RefundService) private readonly refund: RefundService,
+    @Inject(StatusService) private readonly status: StatusService,
+    @Inject(MenuService) private readonly menu: MenuService,
+    @Inject(PositionService) private readonly positionService: PositionService,
   ) {}
 
   @Get('health') health() { return { status: 'ok', service: 'rubtang-api' }; }
@@ -61,7 +67,15 @@ class AppController {
       this.db.tenant.findUniqueOrThrow({ where: { id: p.tenantId }, select: { id: true, name: true } }),
       this.db.branch.findMany({ where: { tenantId: p.tenantId, ...(p.role === 'OWNER' ? {} : { id: { in: p.branchIds } }) }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     ]);
-    return { user, tenant, branches, role: p.role };
+    return {
+      user,
+      tenant,
+      branches,
+      role: p.role,
+      positionId: p.positionId,
+      positionCode: p.positionCode,
+      positionName: p.positionName,
+    };
   }
 
   @Post('auth/logout') @HttpCode(200) @UseGuards(SessionGuard)
@@ -216,6 +230,16 @@ class AppController {
     return this.report.getInventoryValuationReport(req.principal, branchId);
   }
 
+  @Get('reports/vat') @UseGuards(SessionGuard)
+  getVatReport(@Req() req: AuthRequest, @Query() query: unknown) {
+    return this.report.getVatSalesReport(req.principal, query);
+  }
+
+  @Get('reports/stock-card') @UseGuards(SessionGuard)
+  getStockCardReport(@Req() req: AuthRequest, @Query() query: unknown) {
+    return this.report.getStockCardReport(req.principal, query);
+  }
+
   @Get('customers/:id/ledger') @UseGuards(SessionGuard)
   getCustomerLedger(@Req() req: AuthRequest, @Param('id') id: string) {
     return this.loyalty.getCustomerLedger(req.principal, id);
@@ -345,6 +369,16 @@ class AppController {
     return this.audit.getActions(req.principal);
   }
 
+  @Get('audits/definitions') @UseGuards(SessionGuard)
+  getAuditDefinitions(@Req() req: AuthRequest) {
+    return this.audit.getDefinitions(req.principal);
+  }
+
+  @Put('audits/definitions/:action') @UseGuards(SessionGuard)
+  updateAuditDefinition(@Req() req: AuthRequest, @Param('action') action: string, @Body() body: unknown) {
+    return this.audit.updateDefinition(req.principal, action, body);
+  }
+
   @Get('audits/:id') @UseGuards(SessionGuard)
   getAuditLogById(@Req() req: AuthRequest, @Param('id') id: string) {
     return this.audit.getById(req.principal, id);
@@ -390,6 +424,25 @@ class AppController {
     return this.line.getReceiptLogs(req.principal, parsed.limit, parsed.offset);
   }
 
+  @Get('line/low-stock/preview') @UseGuards(SessionGuard)
+  getLineLowStockPreview(
+    @Req() req: AuthRequest,
+    @Query('branchId') branchId?: string,
+    @Query('threshold') threshold?: string
+  ) {
+    return this.line.getLowStockPreview(
+      req.principal,
+      branchId,
+      threshold ? parseInt(threshold, 10) : undefined
+    );
+  }
+
+  @Post('line/low-stock/send') @HttpCode(200) @UseGuards(SessionGuard)
+  sendLineLowStockAlert(@Req() req: AuthRequest, @Body() body: unknown) {
+    const payload = parse(sendLowStockAlertSchema, body || {});
+    return this.line.sendLowStockAlert(req.principal, payload);
+  }
+
   // ── Partial Returns & Refunds ──
 
   @Get('sales/:id/returnable-items') @UseGuards(SessionGuard)
@@ -416,8 +469,75 @@ class AppController {
   getReturnById(@Req() req: AuthRequest, @Param('id') id: string) {
     return this.refund.getReturnById(req.principal, id);
   }
-}
 
+  // ── System Status Definitions ──
+
+  @Get('system/statuses') @UseGuards(SessionGuard)
+  getSystemStatuses(@Query() query: unknown) {
+    const parsed = parse(statusQuerySchema, query || {});
+    return this.status.list(parsed);
+  }
+
+  @Get('system/statuses/:domain/:code') @UseGuards(SessionGuard)
+  getSystemStatusByCode(@Param('domain') domain: string, @Param('code') code: string) {
+    return this.status.getByDomainAndCode(domain, code);
+  }
+
+  @Put('system/statuses/:domain/:code') @UseGuards(SessionGuard)
+  updateSystemStatus(
+    @Req() req: AuthRequest,
+    @Param('domain') domain: string,
+    @Param('code') code: string,
+    @Body() body: unknown
+  ) {
+    return this.status.update(req.principal, domain, code, body);
+  }
+
+  @Get('menus') @UseGuards(SessionGuard)
+  listMenus(@Req() req: AuthRequest) {
+    return this.menu.listUserMenus(req.principal);
+  }
+
+  @Get('menus/manage') @UseGuards(SessionGuard)
+  listAllMenus(@Req() req: AuthRequest) {
+    return this.menu.listAllMenus(req.principal);
+  }
+
+  @Post('menus/:id') @HttpCode(200) @UseGuards(SessionGuard)
+  updateMenu(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.menu.updateMenu(req.principal, id, body);
+  }
+
+  @Get('positions') @UseGuards(SessionGuard)
+  listPositions(@Req() req: AuthRequest) {
+    return this.positionService.listPositions(req.principal);
+  }
+
+  @Post('positions') @UseGuards(SessionGuard)
+  createPosition(@Req() req: AuthRequest, @Body() body: unknown) {
+    return this.positionService.createPosition(req.principal, body);
+  }
+
+  @Put('positions/:id') @UseGuards(SessionGuard)
+  updatePosition(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.positionService.updatePosition(req.principal, id, body);
+  }
+
+  @Get('positions/matrix') @UseGuards(SessionGuard)
+  getPermissionMatrix(@Req() req: AuthRequest) {
+    return this.positionService.getPermissionMatrix(req.principal);
+  }
+
+  @Put('positions/:id/permissions') @UseGuards(SessionGuard)
+  updatePositionPermissions(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.positionService.updatePositionPermissions(req.principal, id, body);
+  }
+
+  @Put('staff/:id/position') @UseGuards(SessionGuard)
+  updateStaffPosition(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.positionService.updateStaffPosition(req.principal, id, body);
+  }
+}
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }])],
@@ -444,6 +564,9 @@ class AppController {
     AuditService,
     LineService,
     RefundService,
+    StatusService,
+    MenuService,
+    PositionService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

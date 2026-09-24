@@ -189,6 +189,20 @@ export const productReportQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 }).strict();
 
+export const vatReportQuerySchema = z.object({
+  branchId: z.string().uuid('รหัสสาขาไม่ถูกต้อง').optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+}).strict();
+
+export const stockCardReportQuerySchema = z.object({
+  productId: z.string().uuid('รหัสสินค้าไม่ถูกต้อง').optional(),
+  branchId: z.string().uuid('รหัสสาขาไม่ถูกต้อง').optional(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+}).strict();
+
 export const manualPointAdjustmentSchema = z.object({
   amount: z.number().int().refine(val => val !== 0, { message: 'จำนวนแต้มที่ปรับต้องไม่เป็น 0' }),
   reason: z.string().trim().min(1, 'กรุณาระบุเหตุผลในการปรับแต้ม').max(200, 'เหตุผลยาวเกินกำหนด'),
@@ -279,6 +293,15 @@ export const updateLineSettingsSchema = z.object({
   welcomeMessage: z.string().trim().max(500).optional().nullable(),
   qrCodeUrl: z.string().trim().url().optional().nullable(),
   active: z.boolean().optional(),
+  lowStockAlertEnabled: z.boolean().optional(),
+  lowStockThreshold: z.coerce.number().int().min(1).max(1000).optional(),
+  lowStockTargetUserId: z.string().trim().max(100).optional().nullable(),
+}).strict();
+
+export const sendLowStockAlertSchema = z.object({
+  branchId: z.string().uuid().optional(),
+  targetLineUserId: z.string().trim().max(100).optional(),
+  threshold: z.coerce.number().int().min(1).max(1000).optional(),
 }).strict();
 
 export const linkCustomerLineSchema = z.object({
@@ -315,3 +338,57 @@ export const returnsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 }).strict();
+
+export const updateAuditActionDefinitionSchema = z.object({
+  label: z.string().trim().min(1, 'ต้องระบุชื่อเรียก (Label)').max(100, 'ชื่อเรียกต้องไม่เกิน 100 ตัวอักษร'),
+  category: z.string().trim().min(1, 'ต้องระบุหมวดหมู่').max(50),
+  severity: z.enum(['INFO', 'WARNING', 'CRITICAL']),
+  description: z.string().trim().max(255).optional().nullable(),
+}).strict();
+
+export const statusQuerySchema = z.object({
+  domain: z.string().trim().max(50).optional(),
+}).strict();
+
+export const updateStatusDefinitionSchema = z.object({
+  label: z.string().trim().min(1, 'ต้องระบุชื่อเรียกสถานะ (Label)').max(100, 'ชื่อเรียกต้องไม่เกิน 100 ตัวอักษร'),
+  color: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'รหัสสีไม่ถูกต้อง (เช่น #16825d)').optional().nullable(),
+  bgColor: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'รหัสสีพื้นหลังไม่ถูกต้อง (เช่น #e8f5ed)').optional().nullable(),
+  icon: z.string().trim().max(50).optional().nullable(),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  isTerminal: z.boolean().optional(),
+  description: z.string().trim().max(255).optional().nullable(),
+}).strict();
+
+export const updateNavigationMenuSchema = z.object({
+  label: z.string().trim().min(1, 'ต้องระบุชื่อเมนู').max(100).optional(),
+  icon: z.string().trim().min(1).max(50).optional(),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional(),
+  allowedRoles: z.array(z.enum(['OWNER', 'MANAGER', 'CASHIER'])).min(1, 'ต้องมีสิทธิ์อย่างน้อย 1 บทบาท').optional(),
+  active: z.boolean().optional(),
+}).strict();
+
+export const createPositionSchema = z.object({
+  code: z.string().trim().min(2, 'รหัสตำแหน่งต้องมีอย่างน้อย 2 ตัวอักษร').max(50).regex(/^[A-Z0-9_]+$/, 'รหัสตำแหน่งต้องเป็นตัวพิมพ์ใหญ่ A-Z, 0-9 และ _ เท่านั้น'),
+  name: z.string().trim().min(2, 'ต้องระบุชื่อตำแหน่งงาน').max(100),
+  description: z.string().trim().max(255).optional().nullable(),
+}).strict();
+
+export const updatePositionSchema = z.object({
+  name: z.string().trim().min(2, 'ต้องระบุชื่อตำแหน่งงาน').max(100).optional(),
+  description: z.string().trim().max(255).optional().nullable(),
+  active: z.boolean().optional(),
+}).strict();
+
+export const updatePositionPermissionsSchema = z.object({
+  permissions: z.array(z.object({
+    menuId: z.string().trim().min(1, 'ต้องระบุ menuId'),
+    canView: z.boolean(),
+    canExport: z.boolean().optional(),
+  })).min(1, 'ต้องระบุสิทธิ์อย่างน้อย 1 รายการ'),
+}).strict();
+
+export const updateStaffPositionSchema = z.object({
+  positionId: z.string().trim().min(1).nullable(),
+}).strict();
+

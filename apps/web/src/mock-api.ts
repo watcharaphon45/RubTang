@@ -1,4 +1,4 @@
-import { ApiError, AuditLogItem, AuditLogListResponse, AuditLogMetrics, BranchPromptPay, BranchTaxSettings, Customer, LineOaSettings, LineReceiptLog, LoyaltyReward, PointLedgerItem, Product, Profile, ReturnableItem, ReturnableSaleInfo, SaleHistoryItem, SaleReturn, SaleReturnItem, SaleReturnListItem, StockTakeDetail, StockTakeItem, StockTakeStatus, StockTakeSummary, TaxInvoice } from './api';
+import { ApiError, AuditActionDefinition, AuditLogItem, AuditLogListResponse, AuditLogMetrics, BranchPromptPay, BranchTaxSettings, Customer, LineOaSettings, LineReceiptLog, LoyaltyReward, NavigationMenuItem, PointLedgerItem, Position, Product, Profile, ReturnableItem, ReturnableSaleInfo, SaleHistoryItem, SaleReturn, SaleReturnItem, SaleReturnListItem, StockTakeDetail, StockTakeItem, StockTakeStatus, StockTakeSummary, SystemStatusDefinition, TaxInvoice } from './api';
 import { bahtText, calculateVat } from './baht-text';
 import { generatePromptPayPayload } from './promptpay-engine';
 
@@ -821,6 +821,95 @@ export async function mockApi<T>(path: string, body?: unknown): Promise<T> {
     } as T;
   }
 
+  if (pathname === '/reports/vat') {
+    const items = [
+      {
+        saleId: 'mock-s1',
+        createdAt: new Date().toISOString(),
+        branchId: 'demo-sukhumvit',
+        branchName: 'สาขาสุขุมวิท',
+        documentNumber: 'TAX-202609-001',
+        invoiceType: 'FULL' as const,
+        customerName: 'บริษัท ทีซีซี อินโนเวชั่น จำกัด',
+        customerTaxId: '0105558123456',
+        customerBranch: 'สนญ. (00000)',
+        taxableAmount: 2000.0,
+        vatAmount: 140.0,
+        totalAmount: 2140.0,
+      },
+      {
+        saleId: 'mock-s2',
+        createdAt: new Date().toISOString(),
+        branchId: 'demo-sukhumvit',
+        branchName: 'สาขาสุขุมวิท',
+        documentNumber: 'REC-SKH-00042',
+        invoiceType: 'ABB' as const,
+        customerName: 'ลูกค้ารายย่อย / หน้าร้าน',
+        customerTaxId: '-',
+        customerBranch: '-',
+        taxableAmount: 467.29,
+        vatAmount: 32.71,
+        totalAmount: 500.0,
+      },
+    ];
+
+    return {
+      summary: {
+        totalSalesCount: items.length,
+        totalGrossSales: 2640.0,
+        totalTaxableBase: 2467.29,
+        totalOutputVat: 172.71,
+        fullInvoiceCount: 1,
+        abbCount: 1,
+      },
+      items,
+    } as T;
+  }
+
+  if (pathname === '/reports/stock-card') {
+    const items = [
+      {
+        id: 'mov-1',
+        createdAt: new Date().toISOString(),
+        branchId: 'demo-sukhumvit',
+        branchName: 'สาขาสุขุมวิท',
+        productId: 'demo-product-1',
+        productName: 'เมล็ดกาแฟ อาราบิก้า 250g',
+        sku: 'COFFEE-001',
+        barcode: '8850123456789',
+        type: 'SALE',
+        quantity: -2,
+        balanceBefore: 42,
+        balanceAfter: 40,
+        actorName: 'สมศรี มีทรัพย์ (แคชเชียร์)',
+        note: 'ขายหน้าร้าน บิล REC-SKH-00042',
+      },
+      {
+        id: 'mov-2',
+        createdAt: new Date(Date.now() - 3600000).toISOString(),
+        branchId: 'demo-sukhumvit',
+        branchName: 'สาขาสุขุมวิท',
+        productId: 'demo-product-1',
+        productName: 'เมล็ดกาแฟ อาราบิก้า 250g',
+        sku: 'COFFEE-001',
+        barcode: '8850123456789',
+        type: 'PURCHASE',
+        quantity: 20,
+        balanceBefore: 22,
+        balanceAfter: 42,
+        actorName: 'สมชาย ผู้จัดการ',
+        note: 'รับเข้าจากใบสั่งซื้อ PO-SKH-00012',
+      },
+    ];
+
+    return {
+      summary: {
+        totalRecords: items.length,
+      },
+      items,
+    } as T;
+  }
+
   if (pathname.startsWith('/customers/') && pathname.endsWith('/ledger')) {
     const custId = pathname.split('/')[2];
     const cust = customers.find(c => c.id === custId);
@@ -1344,11 +1433,201 @@ export async function mockApi<T>(path: string, body?: unknown): Promise<T> {
     return distinct as T;
   }
 
+  if (pathname === '/audits/definitions' && body === undefined) {
+    return mockAuditDefinitions as T;
+  }
+
+  if (pathname.startsWith('/audits/definitions/') && body !== undefined) {
+    const action = decodeURIComponent(pathname.replace('/audits/definitions/', ''));
+    let found = mockAuditDefinitions.find(d => d.action === action);
+    if (!found) {
+      found = {
+        id: `def-${Date.now()}`,
+        action,
+        label: String(input.label || action),
+        category: String(input.category || 'OTHER'),
+        severity: (input.severity as any) || 'INFO',
+        description: input.description ? String(input.description) : null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      mockAuditDefinitions.push(found);
+    } else {
+      if (input.label) found.label = String(input.label);
+      if (input.category) found.category = String(input.category);
+      if (input.severity) found.severity = input.severity as any;
+      if (input.description !== undefined) found.description = input.description ? String(input.description) : null;
+      found.updatedAt = new Date().toISOString();
+    }
+    for (const audit of mockAudits) {
+      if (audit.action === action) {
+        audit.actionLabel = found.label;
+        audit.category = found.category;
+        audit.severity = found.severity;
+      }
+    }
+    return found as T;
+  }
+
+  // SYSTEM STATUS DEFINITIONS
+  if (pathname === '/system/statuses' && body === undefined) {
+    const domain = query.get('domain');
+    if (!domain || domain === 'ALL') {
+      return mockSystemStatuses as T;
+    }
+    const filtered = mockSystemStatuses.filter(s => s.domain.toUpperCase() === domain.toUpperCase());
+    return filtered as T;
+  }
+
+  if (pathname.startsWith('/system/statuses/') && body === undefined) {
+    const parts = pathname.replace('/system/statuses/', '').split('/');
+    if (parts.length === 2) {
+      const [domain, code] = parts.map(decodeURIComponent);
+      const found = mockSystemStatuses.find(
+        s => s.domain.toUpperCase() === domain.toUpperCase() && s.code.toUpperCase() === code.toUpperCase()
+      );
+      if (!found) throw new ApiError(404, `ไม่พบสถานะ ${code} ในหมวด ${domain}`);
+      return found as T;
+    }
+  }
+
+  if (pathname.startsWith('/system/statuses/') && body !== undefined) {
+    const parts = pathname.replace('/system/statuses/', '').split('/');
+    if (parts.length === 2) {
+      const [domain, code] = parts.map(decodeURIComponent);
+      let found = mockSystemStatuses.find(
+        s => s.domain.toUpperCase() === domain.toUpperCase() && s.code.toUpperCase() === code.toUpperCase()
+      );
+      if (!found) {
+        found = {
+          id: `st-custom-${Date.now()}`,
+          domain: domain.toUpperCase(),
+          code: code.toUpperCase(),
+          label: String(input.label || code),
+          color: input.color ? String(input.color) : null,
+          bgColor: input.bgColor ? String(input.bgColor) : null,
+          icon: input.icon ? String(input.icon) : null,
+          sortOrder: input.sortOrder !== undefined ? Number(input.sortOrder) : 0,
+          isTerminal: input.isTerminal !== undefined ? Boolean(input.isTerminal) : false,
+          description: input.description ? String(input.description) : null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        mockSystemStatuses.push(found);
+      } else {
+        if (input.label) found.label = String(input.label);
+        if (input.color !== undefined) found.color = input.color ? String(input.color) : null;
+        if (input.bgColor !== undefined) found.bgColor = input.bgColor ? String(input.bgColor) : null;
+        if (input.icon !== undefined) found.icon = input.icon ? String(input.icon) : null;
+        if (input.sortOrder !== undefined) found.sortOrder = Number(input.sortOrder);
+        if (input.isTerminal !== undefined) found.isTerminal = Boolean(input.isTerminal);
+        if (input.description !== undefined) found.description = input.description ? String(input.description) : null;
+        found.updatedAt = new Date().toISOString();
+      }
+      return found as T;
+    }
+  }
+
   if (pathname.startsWith('/audits/') && body === undefined) {
     const id = pathname.replace('/audits/', '');
     const found = mockAudits.find(a => a.id === id);
     if (!found) throw new ApiError(404, 'ไม่พบบันทึกการตรวจสอบ');
     return found as T;
+  }
+
+  // NAVIGATION MENUS (RBAC)
+  if (pathname === '/menus' && body === undefined) {
+    const userRole = profile.role;
+    return mockNavigationMenus.filter(m => m.active && m.allowedRoles.includes(userRole)) as T;
+  }
+
+  if (pathname === '/menus/manage' && body === undefined) {
+    if (profile.role === 'CASHIER') throw new ApiError(403, 'ไม่มีสิทธิ์จัดการเมนู');
+    return mockNavigationMenus as T;
+  }
+
+  if (pathname.startsWith('/menus/') && body !== undefined) {
+    if (profile.role !== 'OWNER') throw new ApiError(403, 'เฉพาะเจ้าของร้านที่สามารถแก้ไขเมนูได้');
+    const id = pathname.replace('/menus/', '');
+    const menu = mockNavigationMenus.find(m => m.id === id);
+    if (!menu) throw new ApiError(404, 'ไม่พบเมนูระบบ');
+    const input = body as any;
+    if (input.label !== undefined) menu.label = String(input.label);
+    if (input.icon !== undefined) menu.icon = String(input.icon);
+    if (input.sortOrder !== undefined) menu.sortOrder = Number(input.sortOrder);
+    if (input.allowedRoles !== undefined) menu.allowedRoles = input.allowedRoles;
+    if (input.active !== undefined) menu.active = Boolean(input.active);
+    return menu as T;
+  }
+
+  // POSITIONS & RBAC PERMISSION MATRIX
+  if (pathname === '/positions' && body === undefined) {
+    return mockPositions.map(p => ({
+      ...p,
+      _count: {
+        memberships: p.code === 'OWNER' ? 1 : p.code === 'CASHIER' ? 3 : 0,
+        permissions: Object.values(mockPositionPermissions[p.id] || {}).filter(perm => perm.canView).length,
+      },
+    })) as T;
+  }
+
+  if (pathname === '/positions' && body !== undefined) {
+    if (profile.role !== 'OWNER') throw new ApiError(403, 'เฉพาะเจ้าของร้านที่สามารถสร้างตำแหน่งงานได้');
+    const input = body as any;
+    const newPos: Position = {
+      id: `pos-${Date.now()}`,
+      code: String(input.code).toUpperCase().trim(),
+      name: String(input.name).trim(),
+      description: input.description ? String(input.description).trim() : null,
+      isSystem: false,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    mockPositions.push(newPos);
+    mockPositionPermissions[newPos.id] = {};
+    for (const m of mockNavigationMenus) {
+      mockPositionPermissions[newPos.id][m.id] = { canView: false, canExport: false };
+    }
+    return newPos as T;
+  }
+
+  if (pathname === '/positions/matrix' && body === undefined) {
+    return {
+      positions: mockPositions.filter(p => p.active).map(p => ({ id: p.id, code: p.code, name: p.name, isSystem: p.isSystem })),
+      menus: mockNavigationMenus.filter(m => m.active),
+      matrix: mockPositionPermissions,
+    } as T;
+  }
+
+  if (pathname.startsWith('/positions/') && pathname.endsWith('/permissions') && body !== undefined) {
+    if (profile.role !== 'OWNER') throw new ApiError(403, 'เฉพาะเจ้าของร้านที่สามารถปรับแก้สิทธิ์ได้');
+    const posId = pathname.replace('/positions/', '').replace('/permissions', '');
+    const input = body as { permissions: { menuId: string; canView: boolean; canExport?: boolean }[] };
+    if (!mockPositionPermissions[posId]) mockPositionPermissions[posId] = {};
+    for (const item of input.permissions) {
+      mockPositionPermissions[posId][item.menuId] = {
+        canView: item.canView,
+        canExport: item.canExport ?? false,
+      };
+    }
+    return { ok: true, count: input.permissions.length } as T;
+  }
+
+  if (pathname.startsWith('/positions/') && body !== undefined) {
+    if (profile.role !== 'OWNER') throw new ApiError(403, 'เฉพาะเจ้าของร้านที่สามารถแก้ไขตำแหน่งได้');
+    const id = pathname.replace('/positions/', '');
+    const pos = mockPositions.find(p => p.id === id);
+    if (!pos) throw new ApiError(404, 'ไม่พบตำแหน่งงาน');
+    const input = body as any;
+    if (input.name !== undefined) pos.name = String(input.name);
+    if (input.description !== undefined) pos.description = input.description ? String(input.description) : null;
+    if (input.active !== undefined) pos.active = Boolean(input.active);
+    return pos as T;
+  }
+
+  if (pathname.startsWith('/staff/') && pathname.endsWith('/position') && body !== undefined) {
+    if (profile.role !== 'OWNER') throw new ApiError(403, 'เฉพาะเจ้าของร้านที่สามารถกำหนดตำแหน่งพนักงานได้');
+    return { ok: true } as T;
   }
 
   // LINE OFFICIAL ACCOUNT & E-RECEIPT
@@ -1368,9 +1647,74 @@ export async function mockApi<T>(path: string, body?: unknown): Promise<T> {
       welcomeMessage: stringValue(input.welcomeMessage) || null,
       qrCodeUrl: stringValue(input.qrCodeUrl) || null,
       active: input.active !== undefined ? Boolean(input.active) : mockLineSettings.active,
+      lowStockAlertEnabled: input.lowStockAlertEnabled !== undefined ? Boolean(input.lowStockAlertEnabled) : mockLineSettings.lowStockAlertEnabled,
+      lowStockThreshold: input.lowStockThreshold !== undefined ? Number(input.lowStockThreshold) : mockLineSettings.lowStockThreshold,
+      lowStockTargetUserId: stringValue(input.lowStockTargetUserId) || mockLineSettings.lowStockTargetUserId,
       isConfigured: Boolean(input.channelAccessToken && String(input.channelAccessToken).length > 5),
     };
     return mockLineSettings as T;
+  }
+
+  if (pathname === '/line/low-stock/preview' && body === undefined) {
+    const threshold = query.get('threshold') ? parseInt(query.get('threshold')!, 10) : (mockLineSettings.lowStockThreshold || 5);
+    const lowStockItems = products
+      .filter(p => p.active && Number(p.quantity) <= threshold)
+      .map(p => ({
+        productId: p.id,
+        name: p.name,
+        sku: p.sku,
+        branchId: 'demo-sukhumvit',
+        branchName: 'สาขาสุขุมวิท',
+        quantity: Number(p.quantity),
+        reorderPoint: threshold,
+        price: Number(p.price),
+      }));
+
+    return {
+      threshold,
+      branchId: 'demo-sukhumvit',
+      branchName: 'สาขาสุขุมวิท',
+      items: lowStockItems,
+      totalCount: lowStockItems.length,
+      outOfStockCount: lowStockItems.filter(i => i.quantity <= 0).length,
+      flexMessage: {
+        type: 'flex',
+        altText: `⚠️ แจ้งเตือนสินค้าใกล้หมด ${lowStockItems.length} รายการ (สาขาสุขุมวิท)`,
+        contents: {
+          type: 'bubble',
+          header: {
+            type: 'box',
+            backgroundColor: '#dc2626',
+            contents: [
+              { type: 'text', text: '⚠️ LOW STOCK ALERT · แจ้งเตือนสินค้าใกล้หมด', color: '#fee2e2' },
+              { type: 'text', text: profile.tenant.name, color: '#ffffff', size: 'lg', weight: 'bold' },
+            ],
+          },
+        },
+      },
+      settings: {
+        lowStockAlertEnabled: mockLineSettings.lowStockAlertEnabled ?? true,
+        lowStockThreshold: mockLineSettings.lowStockThreshold ?? 5,
+        lowStockTargetUserId: mockLineSettings.lowStockTargetUserId ?? 'U_demo_manager_line_user',
+        lowStockLastAlertAt: mockLineSettings.lowStockLastAlertAt ?? null,
+      },
+    } as T;
+  }
+
+  if (pathname === '/line/low-stock/send' && body !== undefined) {
+    const targetUserId = stringValue(input.targetLineUserId) || mockLineSettings.lowStockTargetUserId || 'U_demo_manager_line_user';
+    mockLineSettings.lowStockLastAlertAt = new Date().toISOString();
+    const threshold = Number(input.threshold) || mockLineSettings.lowStockThreshold || 5;
+    const items = products.filter(p => p.active && Number(p.quantity) <= threshold);
+
+    return {
+      success: true,
+      count: items.length,
+      targetUserId,
+      status: 'SENT',
+      message: `ส่งการแจ้งเตือนสินค้าใกล้หมด ${items.length} รายการ ไปยัง LINE (${targetUserId}) สำเร็จ`,
+      flexMessage: {},
+    } as T;
   }
 
   if (pathname === '/line/test-connection' && body !== undefined) {
@@ -2133,6 +2477,124 @@ const mockBranchPromptPay: Record<string, BranchPromptPay> = {
   },
 };
 
+const mockAuditDefinitions: AuditActionDefinition[] = [
+  { id: 'def-1', action: 'TENANT_CREATED', label: 'สร้างร้านค้าใหม่', category: 'ADMIN', severity: 'INFO', description: 'สร้างข้อมูลองค์กรหรือร้านค้าหลักใหม่' },
+  { id: 'def-2', action: 'BRANCH_CREATED', label: 'เพิ่มสาขาใหม่', category: 'ADMIN', severity: 'INFO', description: 'สร้างสาขาใหม่ในระบบ' },
+  { id: 'def-3', action: 'STAFF_INVITED', label: 'เพิ่ม/เชิญพนักงาน', category: 'ADMIN', severity: 'WARNING', description: 'เชิญหรือมอบหมายสิทธิ์ให้พนักงานใหม่' },
+  { id: 'def-4', action: 'LINE_SETTINGS_UPDATED', label: 'แก้ไขการตั้งค่า LINE OA', category: 'ADMIN', severity: 'INFO', description: 'อัปเดต Channel Secret หรือ Access Token' },
+  { id: 'def-5', action: 'PRODUCT_CREATED', label: 'สร้างรายการสินค้า', category: 'CATALOG', severity: 'INFO', description: 'เพิ่มสินค้าใหม่เข้าแคตตาล็อก' },
+  { id: 'def-6', action: 'PRODUCT_UPDATED', label: 'แก้ไขข้อมูลสินค้า/ราคา', category: 'CATALOG', severity: 'INFO', description: 'แก้ไขชื่อ ราคา บาร์โค้ด หรือรายละเอียดสินค้า' },
+  { id: 'def-7', action: 'STOCK_MOVEMENT_CREATED', label: 'รับเข้า/ปรับยอดสต็อก', category: 'INVENTORY', severity: 'WARNING', description: 'ปรับยอดคงเหลือสต็อกหรือรับสินค้าเข้าคลัง' },
+  { id: 'def-8', action: 'TRANSFER_INITIATED', label: 'เปิดใบโอนสินค้า', category: 'INVENTORY', severity: 'INFO', description: 'สร้างเอกสารขอโอนย้ายสินค้าระหว่างสาขา' },
+  { id: 'def-9', action: 'TRANSFER_COMPLETED', label: 'รับสินค้าโอนเข้าสาขา', category: 'INVENTORY', severity: 'INFO', description: 'ปลายทางกดยืนยันรับสินค้าที่โอนมา' },
+  { id: 'def-10', action: 'TRANSFER_CANCELLED', label: 'ยกเลิกใบโอนสินค้า', category: 'INVENTORY', severity: 'WARNING', description: 'ยกเลิกคำขอโอนย้ายสินค้า' },
+  { id: 'def-11', action: 'STOCK_TAKE_STARTED', label: 'เปิดรอบตรวจนับสต็อก', category: 'INVENTORY', severity: 'INFO', description: 'เปิดรอบนับสต็อกสินค้าประจำงวด' },
+  { id: 'def-12', action: 'STOCK_TAKE_APPROVED', label: 'อนุมัติกระทบยอดสต็อก', category: 'INVENTORY', severity: 'WARNING', description: 'อนุมัติปรับยอดคงเหลือตามผลการตรวจนับจริง' },
+  { id: 'def-13', action: 'STOCK_TAKE_CANCELLED', label: 'ยกเลิกรอบตรวจนับสต็อก', category: 'INVENTORY', severity: 'WARNING', description: 'ยกเลิกรอบตรวจนับสินค้า' },
+  { id: 'def-14', action: 'SHIFT_OPENED', label: 'เปิดกะเงินสด', category: 'SHIFT', severity: 'INFO', description: 'เริ่มต้นกะขายและบันทึกเงินทอนเริ่มต้น' },
+  { id: 'def-15', action: 'SHIFT_CLOSED', label: 'ปิดกะเงินสดและส่งยอด', category: 'SHIFT', severity: 'INFO', description: 'สิ้นสุดกะขายและกระทบยอดเงินสดจริง' },
+  { id: 'def-16', action: 'SALE_COMPLETED', label: 'บันทึกการขาย', category: 'SALES', severity: 'INFO', description: 'ชำระเงินและออกใบเสร็จรับเงินสำเร็จ' },
+  { id: 'def-17', action: 'SALE_VOIDED', label: 'ยกเลิกบิลขาย (Void)', category: 'SALES', severity: 'CRITICAL', description: 'ยกเลิกรายการขาย คืนยอดสต็อกและรายได้' },
+  { id: 'def-18', action: 'SALE_RETURN_CREATED', label: 'คืนสินค้า/ออกใบลดหนี้', category: 'SALES', severity: 'WARNING', description: 'รับคืนสินค้าบางส่วนหรือเต็มบิล พร้อมคืนเงินลูกค้า' },
+  { id: 'def-19', action: 'LINE_RECEIPT_SENT', label: 'ส่ง E-Receipt เข้า LINE', category: 'SALES', severity: 'INFO', description: 'ส่งใบเสร็จอิเล็กทรอนิกส์เข้า LINE OA สำเร็จ' },
+  { id: 'def-20', action: 'PROMOTION_CREATED', label: 'สร้างโปรโมชัน/คูปอง', category: 'MARKETING', severity: 'INFO', description: 'สร้างแคมเปญส่วนลดหรือคูปองใหม่' },
+  { id: 'def-21', action: 'COUPON_REDEEMED', label: 'ใช้คูปองส่วนลด', category: 'MARKETING', severity: 'INFO', description: 'นำคูปองมาใช้เป็นส่วนลดในการซื้อสินค้า' },
+  { id: 'def-22', action: 'POINTS_ADJUSTED', label: 'ปรับแต้มสะสมสมาชิก', category: 'MARKETING', severity: 'WARNING', description: 'ปรับเพิ่มหรือลดยอดแต้มสะสมของลูกค้าด้วยตนเอง' },
+  { id: 'def-23', action: 'LINE_CUSTOMER_LINKED', label: 'ผูกบัญชี LINE สมาชิก', category: 'MARKETING', severity: 'INFO', description: 'ลูกค้าผูกบัญชี LINE เข้ากับเบอร์โทรสมาชิกร้าน' },
+  { id: 'def-24', action: 'LINE_CUSTOMER_UNLINKED', label: 'ยกเลิกผูกบัญชี LINE สมาชิก', category: 'MARKETING', severity: 'INFO', description: 'ยกเลิกการเชื่อมโยงบัญชี LINE กับสมาชิกร้าน' },
+  { id: 'def-25', action: 'SUPPLIER_CREATED', label: 'เพิ่มผู้จำหน่าย', category: 'PROCUREMENT', severity: 'INFO', description: 'เพิ่มข้อมูลคู่ค้า/ซัพพลายเออร์ใหม่' },
+  { id: 'def-26', action: 'PURCHASE_ORDER_CREATED', label: 'สร้างใบสั่งซื้อ (PO)', category: 'PROCUREMENT', severity: 'INFO', description: 'สร้างเอกสารสั่งซื้อสินค้าจากซัพพลายเออร์' },
+  { id: 'def-27', action: 'PURCHASE_ORDER_RECEIVED', label: 'รับสินค้าตามใบสั่งซื้อ', category: 'PROCUREMENT', severity: 'INFO', description: 'รับสินค้าเข้าคลังตามเอกสารสั่งซื้อ' },
+];
+
+const mockSystemStatuses: SystemStatusDefinition[] = [
+  // TransferStatus
+  { id: 'st-tr-1', domain: 'TRANSFER', code: 'IN_TRANSIT', label: 'กำลังขนส่ง', color: '#a36600', bgColor: '#fff5df', icon: 'Truck', sortOrder: 1, isTerminal: false, description: 'สินค้าอยู่ระหว่างการจัดส่งไปยังสาขาปลายทาง' },
+  { id: 'st-tr-2', domain: 'TRANSFER', code: 'COMPLETED', label: 'รับสินค้าแล้ว', color: '#16825d', bgColor: '#e8f5ed', icon: 'CheckCircle2', sortOrder: 2, isTerminal: true, description: 'สาขาปลายทางกดยืนยันรับสินค้าเข้าคลังแล้ว' },
+  { id: 'st-tr-3', domain: 'TRANSFER', code: 'CANCELLED', label: 'ยกเลิกแล้ว', color: '#c23f45', bgColor: '#fff1f2', icon: 'XCircle', sortOrder: 3, isTerminal: true, description: 'ยกเลิกใบโอนสินค้าระหว่างสาขา' },
+
+  // SaleStatus
+  { id: 'st-sl-1', domain: 'SALE', code: 'COMPLETED', label: 'สำเร็จ', color: '#16825d', bgColor: '#e8f5ed', icon: 'CheckCircle2', sortOrder: 1, isTerminal: false, description: 'ชำระเงินและออกใบเสร็จรับเงินสำเร็จ' },
+  { id: 'st-sl-2', domain: 'SALE', code: 'PARTIALLY_RETURNED', label: 'คืนสินค้าบางส่วน', color: '#a36600', bgColor: '#fff5df', icon: 'RotateCcw', sortOrder: 2, isTerminal: false, description: 'มีการรับคืนสินค้าบางรายการในบิล' },
+  { id: 'st-sl-3', domain: 'SALE', code: 'VOIDED', label: 'ยกเลิกบิล (Void)', color: '#c23f45', bgColor: '#fff1f2', icon: 'Ban', sortOrder: 3, isTerminal: true, description: 'ยกเลิกรายการขายและคืนยอดเงินเต็มจำนวน' },
+
+  // ShiftStatus
+  { id: 'st-sh-1', domain: 'SHIFT', code: 'OPEN', label: 'เปิดกะอยู่', color: '#16825d', bgColor: '#e8f5ed', icon: 'LockOpen', sortOrder: 1, isTerminal: false, description: 'กะเงินสดเปิดทำงานและบันทึกยอดขายอยู่' },
+  { id: 'st-sh-2', domain: 'SHIFT', code: 'CLOSED', label: 'ปิดกะแล้ว', color: '#64748b', bgColor: '#f1f5f9', icon: 'Lock', sortOrder: 2, isTerminal: true, description: 'ปิดกะขายและส่งยอดเงินสดเรียบร้อยแล้ว' },
+
+  // PurchaseOrderStatus
+  { id: 'st-po-1', domain: 'PURCHASE_ORDER', code: 'DRAFT', label: 'แบบร่าง', color: '#64748b', bgColor: '#f1f5f9', icon: 'FileText', sortOrder: 1, isTerminal: false, description: 'ร่างเอกสารสั่งซื้อสินค้า ยังไม่ส่งให้คู่ค้า' },
+  { id: 'st-po-2', domain: 'PURCHASE_ORDER', code: 'ORDERED', label: 'สั่งซื้อแล้ว', color: '#0284c7', bgColor: '#e0f2fe', icon: 'Send', sortOrder: 2, isTerminal: false, description: 'ยืนยันใบสั่งซื้อและส่งให้ซัพพลายเออร์แล้ว' },
+  { id: 'st-po-3', domain: 'PURCHASE_ORDER', code: 'PARTIALLY_RECEIVED', label: 'รับสินค้าบางส่วน', color: '#a36600', bgColor: '#fff5df', icon: 'Clock', sortOrder: 3, isTerminal: false, description: 'สินค้าทยอยส่งมอบเข้าคลังบางรายการ' },
+  { id: 'st-po-4', domain: 'PURCHASE_ORDER', code: 'RECEIVED', label: 'รับสินค้าครบแล้ว', color: '#16825d', bgColor: '#e8f5ed', icon: 'CheckCircle2', sortOrder: 4, isTerminal: true, description: 'รับสินค้าเข้าคลังครบถ้วนตามใบสั่งซื้อ' },
+  { id: 'st-po-5', domain: 'PURCHASE_ORDER', code: 'CANCELLED', label: 'ยกเลิกแล้ว', color: '#c23f45', bgColor: '#fff1f2', icon: 'XCircle', sortOrder: 5, isTerminal: true, description: 'ยกเลิกใบสั่งซื้อสินค้า' },
+
+  // StockTakeStatus
+  { id: 'st-st-1', domain: 'STOCK_TAKE', code: 'IN_PROGRESS', label: 'กำลังตรวจนับ', color: '#a36600', bgColor: '#fff5df', icon: 'Clock', sortOrder: 1, isTerminal: false, description: 'อยู่ระหว่างการนับสินค้าและบันทึกยอดตรวจนับ' },
+  { id: 'st-st-2', domain: 'STOCK_TAKE', code: 'COMPLETED', label: 'ปรับยอดแล้ว', color: '#16825d', bgColor: '#e8f5ed', icon: 'CheckCircle2', sortOrder: 2, isTerminal: true, description: 'อนุมัติผลการตรวจนับและปรับปรุงยอดสต็อกแล้ว' },
+  { id: 'st-st-3', domain: 'STOCK_TAKE', code: 'CANCELLED', label: 'ยกเลิกแล้ว', color: '#c23f45', bgColor: '#fff1f2', icon: 'XCircle', sortOrder: 3, isTerminal: true, description: 'ยกเลิกรอบการตรวจนับสต็อกสินค้า' },
+
+  // TaxInvoiceStatus
+  { id: 'st-tx-1', domain: 'TAX_INVOICE', code: 'ISSUED', label: 'ออกเอกสารแล้ว', color: '#16825d', bgColor: '#e8f5ed', icon: 'FileCheck', sortOrder: 1, isTerminal: false, description: 'ออกใบกำกับภาษีอย่างเต็มรูปสำเร็จ' },
+  { id: 'st-tx-2', domain: 'TAX_INVOICE', code: 'CANCELLED', label: 'ยกเลิกแล้ว', color: '#c23f45', bgColor: '#fff1f2', icon: 'XCircle', sortOrder: 2, isTerminal: true, description: 'ยกเลิกใบกำกับภาษีเรียบร้อยแล้ว' },
+
+  // MovementType
+  { id: 'st-mv-1', domain: 'MOVEMENT', code: 'RECEIVE', label: 'รับเข้า', color: '#16825d', bgColor: '#e8f5ed', icon: 'ArrowDownLeft', sortOrder: 1, isTerminal: false, description: 'รับสินค้าเข้าคลัง' },
+  { id: 'st-mv-2', domain: 'MOVEMENT', code: 'ADJUSTMENT', label: 'ปรับยอดสต็อก', color: '#a36600', bgColor: '#fff5df', icon: 'Sliders', sortOrder: 2, isTerminal: false, description: 'ปรับเพิ่มหรือลดยอดสต็อกด้วยตนเอง' },
+  { id: 'st-mv-3', domain: 'MOVEMENT', code: 'SALE', label: 'ขายหน้าร้าน', color: '#0284c7', bgColor: '#e0f2fe', icon: 'ShoppingBag', sortOrder: 3, isTerminal: false, description: 'ตัดสต็อกจากการขายหน้าร้าน POS' },
+  { id: 'st-mv-4', domain: 'MOVEMENT', code: 'VOID_SALE', label: 'ยกเลิกการขาย', color: '#c23f45', bgColor: '#fff1f2', icon: 'Ban', sortOrder: 4, isTerminal: false, description: 'คืนยอดสต็อกจากการยกเลิกบิลขาย (Void)' },
+  { id: 'st-mv-5', domain: 'MOVEMENT', code: 'TRANSFER_OUT', label: 'โอนสินค้าออก', color: '#d97706', bgColor: '#fef3c7', icon: 'ArrowUpRight', sortOrder: 5, isTerminal: false, description: 'ตัดสต็อกเพื่อโอนย้ายไปยังสาขาอื่น' },
+  { id: 'st-mv-6', domain: 'MOVEMENT', code: 'TRANSFER_IN', label: 'โอนสินค้าเข้า', color: '#059669', bgColor: '#d1fae5', icon: 'ArrowDownLeft', sortOrder: 6, isTerminal: false, description: 'เพิ่มสต็อกจากการรับโอนสินค้าจากสาขาอื่น' },
+  { id: 'st-mv-7', domain: 'MOVEMENT', code: 'RETURN', label: 'รับคืนสินค้า', color: '#7c3aed', bgColor: '#ede9fe', icon: 'RotateCcw', sortOrder: 7, isTerminal: false, description: 'เพิ่มสต็อกจากการรับคืนสินค้าจากลูกค้า' },
+];
+
+const mockNavigationMenus: NavigationMenuItem[] = [
+  { id: 'menu-1', key: 'dashboard', section: 'MAIN', sectionLabel: 'หน้าหลัก', label: 'ภาพรวม (Dashboard)', icon: 'BarChart3', sortOrder: 10, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-2', key: 'pos', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'หน้าขาย (POS)', icon: 'ShoppingCart', sortOrder: 20, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-3', key: 'shifts', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'กะเงินสด', icon: 'CircleDollarSign', sortOrder: 30, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-4', key: 'sales_history', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'ประวัติการขาย', icon: 'FileText', sortOrder: 40, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-5', key: 'customers', section: 'MARKETING', sectionLabel: 'ลูกค้าและการตลาด', label: 'ลูกค้าและสมาชิก', icon: 'UserRound', sortOrder: 50, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-6', key: 'promotions', section: 'MARKETING', sectionLabel: 'ลูกค้าและการตลาด', label: 'โปรโมชันและคูปอง', icon: 'BadgePercent', sortOrder: 60, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-7', key: 'line_oa', section: 'MARKETING', sectionLabel: 'ลูกค้าและการตลาด', label: 'LINE OA & E-Receipt', icon: 'MessageCircle', sortOrder: 70, allowedRoles: ['OWNER', 'MANAGER'], requiredFeature: 'FEATURE_LINE_OA', active: true },
+  { id: 'menu-8', key: 'products', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'สินค้าของร้าน', icon: 'Package', sortOrder: 80, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-9', key: 'transfers', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'โอนย้ายสต็อก', icon: 'ArrowLeftRight', sortOrder: 90, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-10', key: 'stock_take', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'ตรวจนับสต็อก', icon: 'ClipboardCheck', sortOrder: 100, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-11', key: 'barcode', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'พิมพ์บาร์โค้ด / ป้ายราคา', icon: 'Tag', sortOrder: 110, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-12', key: 'suppliers', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'ผู้จำหน่าย', icon: 'Building', sortOrder: 120, allowedRoles: ['OWNER', 'MANAGER'], active: true },
+  { id: 'menu-13', key: 'procurement', section: 'INVENTORY', sectionLabel: 'สินค้าและสต็อก', label: 'สั่งซื้อและรับสินค้า (PO)', icon: 'ClipboardList', sortOrder: 130, allowedRoles: ['OWNER', 'MANAGER'], active: true },
+  { id: 'menu-14', key: 'reports', section: 'MANAGEMENT', sectionLabel: 'จัดการร้าน', label: 'รายงานยอดขาย', icon: 'FileSpreadsheet', sortOrder: 140, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-15', key: 'branches_staff', section: 'MANAGEMENT', sectionLabel: 'จัดการร้าน', label: 'สาขาและพนักงาน', icon: 'Building2', sortOrder: 150, allowedRoles: ['OWNER'], active: true },
+  { id: 'menu-16', key: 'master_data', section: 'MANAGEMENT', sectionLabel: 'จัดการร้าน', label: 'สถานะและ Master Data', icon: 'SlidersHorizontal', sortOrder: 160, allowedRoles: ['OWNER', 'MANAGER'], active: true },
+  { id: 'menu-17', key: 'audit_log', section: 'MANAGEMENT', sectionLabel: 'จัดการร้าน', label: 'ประวัติการตรวจสอบ (Audit)', icon: 'History', sortOrder: 170, allowedRoles: ['OWNER', 'MANAGER'], active: true },
+];
+
+const mockPositions: Position[] = [
+  { id: 'pos-1', code: 'OWNER', name: 'เจ้าของร้าน / ผู้บริหาร', description: 'มีสิทธิ์การเข้าถึงและการจัดการสูงสุดทุกเมนูของระบบ', isSystem: true, active: true, createdAt: new Date().toISOString() },
+  { id: 'pos-2', code: 'MANAGER', name: 'ผู้จัดการร้าน / สาขา', description: 'ดูแลภาพรวมการขาย สต็อก พนักงาน และรายงานบริหาร', isSystem: true, active: true, createdAt: new Date().toISOString() },
+  { id: 'pos-3', code: 'HEAD_CASHIER', name: 'หัวหน้าแคชเชียร์', description: 'ดูแลการขาย กะเงินสด ประวัติการขาย และรายงานสรุปหน้าเคาน์เตอร์', isSystem: false, active: true, createdAt: new Date().toISOString() },
+  { id: 'pos-4', code: 'CASHIER', name: 'พนักงานแคชเชียร์', description: 'ทำรายการขายหน้าร้าน เปิด/ปิดกะเงินสด และสมัครสมาชิกลูกค้า', isSystem: true, active: true, createdAt: new Date().toISOString() },
+  { id: 'pos-5', code: 'STOCK_CLERK', name: 'เจ้าหน้าที่คลังสินค้า', description: 'ตรวจนับสต็อก โอนย้ายสินค้า สั่งซื้อสินค้า และพิมพ์บาร์โค้ด', isSystem: false, active: true, createdAt: new Date().toISOString() },
+  { id: 'pos-6', code: 'ACCOUNTANT', name: 'ฝ่ายการเงินและบัญชี', description: 'ตรวจสอบประวัติการขาย ใบกำกับภาษี สรุปกะ และรายงานทางการเงิน', isSystem: false, active: true, createdAt: new Date().toISOString() },
+];
+
+const mockPositionPermissions: Record<string, Record<string, { canView: boolean; canExport: boolean }>> = {
+  'pos-1': {},
+  'pos-2': {},
+  'pos-3': {},
+  'pos-4': {},
+  'pos-5': {},
+  'pos-6': {},
+};
+
+for (const m of mockNavigationMenus) {
+  mockPositionPermissions['pos-1'][m.id] = { canView: true, canExport: true };
+  mockPositionPermissions['pos-2'][m.id] = { canView: m.key !== 'branches_staff', canExport: true };
+  mockPositionPermissions['pos-3'][m.id] = { canView: ['dashboard', 'pos', 'shifts', 'sales_history', 'customers', 'promotions', 'products', 'reports'].includes(m.key), canExport: true };
+  mockPositionPermissions['pos-4'][m.id] = { canView: ['pos', 'shifts', 'sales_history', 'customers', 'products'].includes(m.key), canExport: false };
+  mockPositionPermissions['pos-5'][m.id] = { canView: ['dashboard', 'products', 'transfers', 'stock_take', 'barcode', 'suppliers', 'procurement'].includes(m.key), canExport: false };
+  mockPositionPermissions['pos-6'][m.id] = { canView: ['dashboard', 'sales_history', 'shifts', 'reports', 'procurement'].includes(m.key), canExport: true };
+}
+
 const mockAudits: AuditLogItem[] = [
   {
     id: 'audit-demo-1',
@@ -2366,6 +2828,10 @@ let mockLineSettings: LineOaSettings = {
   welcomeMessage: 'ยินดีต้อนรับสู่ร้านรับตังค์ ใบเสร็จอิเล็กทรอนิกส์และสะสมแต้มส่งตรงเข้า LINE',
   qrCodeUrl: 'https://qr-official.line.me/gs/M_rubtang_GW.png',
   active: true,
+  lowStockAlertEnabled: true,
+  lowStockThreshold: 5,
+  lowStockTargetUserId: 'U_demo_manager_line_user',
+  lowStockLastAlertAt: null,
   isConfigured: true,
 };
 

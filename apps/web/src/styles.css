@@ -105,3 +105,7 @@ dialog.modal{border:0;color:inherit}dialog.modal::backdrop{background:#172a2366}
 .sales-layout>*,.customer-layout>*,.supplier-layout>*{min-width:0}.customer-preview .customer-layout{grid-template-columns:360px minmax(0,1fr)}.line-dialog>div:first-child,.audit-dialog>div:first-child{flex-wrap:wrap;gap:12px}.line-dialog>div:nth-child(2){overflow-x:auto}.line-dialog>div:nth-child(2)>button{white-space:nowrap;flex-shrink:0}
 @media(max-width:700px){.customer-preview .customer-layout{grid-template-columns:1fr}.line-dialog>div:first-child,.audit-dialog>div:first-child{padding:14px 16px!important}.line-dialog>div:first-child h2,.audit-dialog>div:first-child h2{font-size:17px!important}.line-dialog>div:nth-child(2)>button{padding:12px 14px!important;font-size:12px!important}.line-dialog>div:nth-child(3){padding:14px!important}.audit-dialog .audit-body{grid-template-columns:1fr!important;overflow:auto!important}}
 @keyframes spin{to{transform:rotate(360deg)}}.spin,.spinning{animation:spin 1s linear infinite}
+@keyframes pp-pulse{0%,100%{opacity:1}50%{opacity:.4}}.pp-pulse{animation:pp-pulse 1.2s ease-in-out infinite}
+/* PromptPay Modal */
+.promptpay-modal{border-radius:14px}.promptpay-modal .modal-actions{background:#fff;border-top:1px solid #e2ecf8}
+@media(max-width:700px){.promptpay-modal{border-radius:10px!important;width:100%!important;max-height:100vh!important}}

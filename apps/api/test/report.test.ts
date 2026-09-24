@@ -185,4 +185,113 @@ describe('ReportService', () => {
     expect(result.summary.outOfStockCount).toBe(1);
     expect(result.summary.lowStockCount).toBe(1);
   });
+
+  it('calculates VAT sales report (ภ.พ.30) correctly with both full and simplified receipts', async () => {
+    const db = {
+      sale: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'sale-1',
+            receiptNumber: 'REC-001',
+            total: new Prisma.Decimal('107.00'),
+            subtotal: new Prisma.Decimal('107.00'),
+            discount: new Prisma.Decimal('0.00'),
+            createdAt: new Date('2026-09-20T10:00:00Z'),
+            branch: { id: branchId, name: 'สาขาหลัก' },
+          },
+          {
+            id: 'sale-2',
+            receiptNumber: 'REC-002',
+            total: new Prisma.Decimal('214.00'),
+            subtotal: new Prisma.Decimal('214.00'),
+            discount: new Prisma.Decimal('0.00'),
+            createdAt: new Date('2026-09-20T11:00:00Z'),
+            branch: { id: branchId, name: 'สาขาหลัก' },
+          },
+        ]),
+      },
+      taxInvoice: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'tax-inv-1',
+            saleId: 'sale-2',
+            invoiceNumber: 'TAX-202609-0001',
+            customerName: 'บริษัท กสิกรไทย จำกัด',
+            customerTaxId: '0107536000315',
+            customerBranchNumber: '00000',
+            customerIsHeadOffice: true,
+            taxableAmount: new Prisma.Decimal('200.00'),
+            vatAmount: new Prisma.Decimal('14.00'),
+            total: new Prisma.Decimal('214.00'),
+          },
+        ]),
+      },
+    } as unknown as Database;
+
+    const service = new ReportService(db);
+    const result = await service.getVatSalesReport(owner, {});
+
+    expect(result.summary.totalSalesCount).toBe(2);
+    expect(result.summary.totalGrossSales).toBe(321);
+    expect(result.summary.totalTaxableBase).toBe(300);
+    expect(result.summary.totalOutputVat).toBe(21);
+    expect(result.summary.fullInvoiceCount).toBe(1);
+    expect(result.summary.abbCount).toBe(1);
+
+    expect(result.items[0].documentNumber).toBe('REC-001');
+    expect(result.items[0].invoiceType).toBe('ABB');
+    expect(result.items[0].taxableAmount).toBe(100);
+    expect(result.items[0].vatAmount).toBe(7);
+
+    expect(result.items[1].documentNumber).toBe('TAX-202609-0001');
+    expect(result.items[1].invoiceType).toBe('FULL');
+    expect(result.items[1].customerTaxId).toBe('0107536000315');
+  });
+
+  it('retrieves Stock Card movements report with running balance', async () => {
+    const db = {
+      stockMovement: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'mov-1',
+            createdAt: new Date('2026-09-20T08:00:00Z'),
+            branchId,
+            branch: { id: branchId, name: 'สาขาหลัก' },
+            productId: productId1,
+            product: { id: productId1, name: 'กาแฟคั่วบด', sku: 'COFFEE-01', barcode: '885001' },
+            type: 'PURCHASE',
+            quantity: new Prisma.Decimal('50'),
+            balanceBefore: new Prisma.Decimal('0'),
+            balanceAfter: new Prisma.Decimal('50'),
+            actor: { user: { displayName: 'ผู้จัดการสาขา' } },
+            note: 'รับเข้าจากการสั่งซื้อ PO-001',
+          },
+          {
+            id: 'mov-2',
+            createdAt: new Date('2026-09-20T10:15:00Z'),
+            branchId,
+            branch: { id: branchId, name: 'สาขาหลัก' },
+            productId: productId1,
+            product: { id: productId1, name: 'กาแฟคั่วบด', sku: 'COFFEE-01', barcode: '885001' },
+            type: 'SALE',
+            quantity: new Prisma.Decimal('-2'),
+            balanceBefore: new Prisma.Decimal('50'),
+            balanceAfter: new Prisma.Decimal('48'),
+            actor: { user: { displayName: 'แคชเชียร์ 1' } },
+            note: 'ขายบิล REC-001',
+          },
+        ]),
+      },
+    } as unknown as Database;
+
+    const service = new ReportService(db);
+    const result = await service.getStockCardReport(owner, { productId: productId1 });
+
+    expect(result.summary.totalRecords).toBe(2);
+    expect(result.items[0].type).toBe('PURCHASE');
+    expect(result.items[0].balanceAfter).toBe(50);
+    expect(result.items[1].type).toBe('SALE');
+    expect(result.items[1].quantity).toBe(-2);
+    expect(result.items[1].balanceAfter).toBe(48);
+  });
 });

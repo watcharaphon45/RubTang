@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run test/security.test.ts test/inventory.test.ts test/branch-staff.test.ts test/checkout.test.ts test/customer.test.ts test/sales-history.test.ts test/dashboard.test.ts test/shift.test.ts test/transfer.test.ts test/promotion.test.ts test/procurement.test.ts test/report.test.ts test/loyalty.test.ts test/stock-take.test.ts test/tax-invoice.test.ts test/promptpay.test.ts test/audit.test.ts test/line.test.ts test/refund.test.ts",
+    "test": "vitest run test/security.test.ts test/inventory.test.ts test/branch-staff.test.ts test/checkout.test.ts test/customer.test.ts test/sales-history.test.ts test/dashboard.test.ts test/shift.test.ts test/transfer.test.ts test/promotion.test.ts test/procurement.test.ts test/report.test.ts test/loyalty.test.ts test/stock-take.test.ts test/tax-invoice.test.ts test/promptpay.test.ts test/audit.test.ts test/line.test.ts test/refund.test.ts test/status.test.ts test/barcode.test.ts test/menu.test.ts test/position.test.ts",
     "test:integration": "npm run build && node scripts/integration.mjs",
     "db:local": "node scripts/local-db.mjs",
     "db:generate": "prisma generate",

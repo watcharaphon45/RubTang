@@ -4,13 +4,14 @@ export class ApiError extends Error {
 
 export const isMockMode = import.meta.env.VITE_USE_MOCK_DATA === 'true';
 
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export async function api<T>(path: string, body?: unknown, options?: { method?: string }): Promise<T> {
   if (isMockMode) {
     const { mockApi } = await import('./mock-api');
     return mockApi<T>(path, body);
   }
+  const method = options?.method ?? (body === undefined ? 'GET' : 'POST');
   const response = await fetch(`/api${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method,
     credentials: 'same-origin',
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -25,6 +26,9 @@ export type Profile = {
   tenant: { id: string; name: string };
   branches: { id: string; name: string }[];
   role: 'OWNER' | 'MANAGER' | 'CASHIER';
+  positionId?: string | null;
+  positionCode?: string | null;
+  positionName?: string | null;
 };
 export type Product = { id: string; name: string; sku: string; barcode: string | null; price: string; quantity: string; active: boolean };
 export type Branch = { id: string; name: string };
@@ -34,6 +38,7 @@ export type StaffMember = {
   displayName: string;
   email: string;
   role: 'OWNER' | 'MANAGER' | 'CASHIER';
+  position?: { id: string; code: string; name: string } | null;
   branches: Branch[];
 };
 export type MembershipTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
@@ -342,6 +347,57 @@ export type InventoryValuationData = {
     lowStockCount: number;
   };
   items: InventoryValuationItem[];
+};
+
+export type VatReportItem = {
+  saleId: string;
+  createdAt: string;
+  branchId: string;
+  branchName: string;
+  documentNumber: string;
+  invoiceType: 'FULL' | 'ABB';
+  customerName: string;
+  customerTaxId: string;
+  customerBranch: string;
+  taxableAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+};
+
+export type VatSalesReportData = {
+  summary: {
+    totalSalesCount: number;
+    totalGrossSales: number;
+    totalTaxableBase: number;
+    totalOutputVat: number;
+    fullInvoiceCount: number;
+    abbCount: number;
+  };
+  items: VatReportItem[];
+};
+
+export type StockCardMovementItem = {
+  id: string;
+  createdAt: string;
+  branchId: string;
+  branchName: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  barcode: string;
+  type: string;
+  quantity: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  actorName: string;
+  note: string;
+};
+
+export type StockCardReportData = {
+  summary: {
+    totalRecords: number;
+  };
+  items: StockCardMovementItem[];
 };
 
 export type PointLedgerItem = {
@@ -664,6 +720,76 @@ export function getAuditMetrics() {
   return api<AuditLogMetrics>('/audits/metrics');
 }
 
+export interface AuditActionDefinition {
+  id: string;
+  action: string;
+  label: string;
+  category: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  description: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UpdateAuditActionDefinitionInput {
+  label: string;
+  category: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  description?: string | null;
+}
+
+export function getAuditActionDefinitions() {
+  return api<AuditActionDefinition[]>('/audits/definitions');
+}
+
+export function updateAuditActionDefinition(action: string, data: UpdateAuditActionDefinitionInput) {
+  return api<AuditActionDefinition>(`/audits/definitions/${encodeURIComponent(action)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export interface SystemStatusDefinition {
+  id: string;
+  domain: string;
+  code: string;
+  label: string;
+  color: string | null;
+  bgColor: string | null;
+  icon: string | null;
+  sortOrder: number;
+  isTerminal: boolean;
+  description: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UpdateSystemStatusInput {
+  label: string;
+  color?: string | null;
+  bgColor?: string | null;
+  icon?: string | null;
+  sortOrder?: number;
+  isTerminal?: boolean;
+  description?: string | null;
+}
+
+export function getSystemStatuses(domain?: string) {
+  const q = domain ? `?domain=${encodeURIComponent(domain)}` : '';
+  return api<SystemStatusDefinition[]>(`/system/statuses${q}`);
+}
+
+export function getSystemStatusByCode(domain: string, code: string) {
+  return api<SystemStatusDefinition>(`/system/statuses/${encodeURIComponent(domain)}/${encodeURIComponent(code)}`);
+}
+
+export function updateSystemStatus(domain: string, code: string, data: UpdateSystemStatusInput) {
+  return api<SystemStatusDefinition>(`/system/statuses/${encodeURIComponent(domain)}/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
 export interface LineOaSettings {
   id: string | null;
   tenantId: string;
@@ -676,6 +802,10 @@ export interface LineOaSettings {
   welcomeMessage: string | null;
   qrCodeUrl: string | null;
   active: boolean;
+  lowStockAlertEnabled?: boolean;
+  lowStockThreshold?: number;
+  lowStockTargetUserId?: string | null;
+  lowStockLastAlertAt?: string | null;
   isConfigured?: boolean;
 }
 
@@ -702,6 +832,39 @@ export interface LinkCustomerLinePayload {
   lineUserId: string;
   lineDisplayName?: string;
   linePictureUrl?: string;
+}
+
+export interface LineLowStockItem {
+  productId: string;
+  name: string;
+  sku: string;
+  branchId?: string;
+  branchName?: string;
+  quantity: number;
+  reorderPoint?: number | null;
+  price?: number;
+}
+
+export interface LineLowStockPreviewData {
+  threshold: number;
+  branchId: string | null;
+  branchName: string;
+  items: LineLowStockItem[];
+  totalCount: number;
+  outOfStockCount: number;
+  flexMessage: any;
+  settings: {
+    lowStockAlertEnabled: boolean;
+    lowStockThreshold: number;
+    lowStockTargetUserId: string | null;
+    lowStockLastAlertAt: string | null;
+  };
+}
+
+export interface SendLowStockAlertPayload {
+  branchId?: string;
+  targetLineUserId?: string;
+  threshold?: number;
 }
 
 export function getLineSettings() {
@@ -742,6 +905,26 @@ export function getLineReceiptLogs(params?: { limit?: number; offset?: number })
   if (params?.offset !== undefined) q.set('offset', String(params.offset));
   const queryString = q.toString() ? `?${q.toString()}` : '';
   return api<{ items: LineReceiptLog[]; total: number; limit: number; offset: number }>(`/line/receipt-logs${queryString}`);
+}
+
+export function getLineLowStockPreview(branchId?: string, threshold?: number) {
+  const q = new URLSearchParams();
+  if (branchId) q.set('branchId', branchId);
+  if (threshold !== undefined) q.set('threshold', String(threshold));
+  const queryString = q.toString() ? `?${q.toString()}` : '';
+  return api<LineLowStockPreviewData>(`/line/low-stock/preview${queryString}`);
+}
+
+export function sendLineLowStockAlert(payload?: SendLowStockAlertPayload) {
+  return api<{
+    success: boolean;
+    count: number;
+    targetUserId?: string;
+    message?: string;
+    status: string;
+    errorMessage?: string | null;
+    flexMessage: any;
+  }>('/line/low-stock/send', payload || {});
 }
 
 // ── Partial Returns & Refunds ──
@@ -867,3 +1050,156 @@ export function listAllReturns(params?: { branchId?: string; startDate?: string;
 export function getReturnById(returnId: string) {
   return api<SaleReturn>(`/returns/${returnId}`);
 }
+
+export function getVatSalesReport(params: {
+  branchId?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<VatSalesReportData> {
+  const query = new URLSearchParams();
+  if (params.branchId) query.set('branchId', params.branchId);
+  if (params.startDate) query.set('startDate', params.startDate);
+  if (params.endDate) query.set('endDate', params.endDate);
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return api<VatSalesReportData>(`/reports/vat${qs}`);
+}
+
+export function getStockCardReport(params: {
+  productId?: string;
+  branchId?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+}): Promise<StockCardReportData> {
+  const query = new URLSearchParams();
+  if (params.productId) query.set('productId', params.productId);
+  if (params.branchId) query.set('branchId', params.branchId);
+  if (params.startDate) query.set('startDate', params.startDate);
+  if (params.endDate) query.set('endDate', params.endDate);
+  if (params.limit) query.set('limit', String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  return api<StockCardReportData>(`/reports/stock-card${qs}`);
+}
+
+export interface NavigationMenuItem {
+  id: string;
+  key: string;
+  section: string;
+  sectionLabel: string;
+  label: string;
+  icon: string;
+  sortOrder: number;
+  allowedRoles: ('OWNER' | 'MANAGER' | 'CASHIER')[];
+  requiredFeature?: string | null;
+  active: boolean;
+}
+
+export function getNavigationMenus() {
+  return api<NavigationMenuItem[]>('/menus');
+}
+
+export function getManageableMenus() {
+  return api<NavigationMenuItem[]>('/menus/manage');
+}
+
+export type UpdateNavigationMenuInput = {
+  label?: string;
+  icon?: string;
+  sortOrder?: number;
+  allowedRoles?: ('OWNER' | 'MANAGER' | 'CASHIER')[];
+  active?: boolean;
+};
+
+export function updateNavigationMenu(
+  id: string,
+  payload: UpdateNavigationMenuInput
+) {
+  return api<NavigationMenuItem>(`/menus/${id}`, payload);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Positions & RBAC Permission Matrix
+// ─────────────────────────────────────────────────────────────
+
+export interface Position {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isSystem: boolean;
+  active: boolean;
+  createdAt: string;
+  _count?: {
+    memberships: number;
+    permissions: number;
+  };
+}
+
+export interface PositionMatrixMenu {
+  id: string;
+  key: string;
+  section: string;
+  sectionLabel: string;
+  label: string;
+  icon: string;
+  sortOrder: number;
+}
+
+export interface PositionMatrixPosition {
+  id: string;
+  code: string;
+  name: string;
+  isSystem: boolean;
+}
+
+export interface PositionMatrixResponse {
+  positions: PositionMatrixPosition[];
+  menus: PositionMatrixMenu[];
+  matrix: Record<string, Record<string, { canView: boolean; canExport: boolean }>>;
+}
+
+export interface CreatePositionInput {
+  code: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface UpdatePositionInput {
+  name?: string;
+  description?: string | null;
+  active?: boolean;
+}
+
+export interface UpdatePositionPermissionsInput {
+  permissions: {
+    menuId: string;
+    canView: boolean;
+    canExport?: boolean;
+  }[];
+}
+
+export function getPositions() {
+  return api<Position[]>('/positions');
+}
+
+export function createPosition(input: CreatePositionInput) {
+  return api<Position>('/positions', input);
+}
+
+export function updatePosition(id: string, input: UpdatePositionInput) {
+  return api<Position>(`/positions/${id}`, input, { method: 'PUT' });
+}
+
+export function getPositionMatrix() {
+  return api<PositionMatrixResponse>('/positions/matrix');
+}
+
+export function updatePositionPermissions(positionId: string, input: UpdatePositionPermissionsInput) {
+  return api<{ ok: boolean; count: number }>(`/positions/${positionId}/permissions`, input, { method: 'PUT' });
+}
+
+export function updateStaffPosition(staffId: string, positionId: string | null) {
+  return api<any>(`/staff/${staffId}/position`, { positionId }, { method: 'PUT' });
+}
+
+

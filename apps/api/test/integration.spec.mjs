@@ -9,9 +9,10 @@ const db = new PrismaClient();
 let a, b, product, branch2;
 const password = 'Integration-password-123';
 
-async function request(path, { cookie, body, origin = 'http://localhost:5173' } = {}) {
+async function request(path, { cookie, body, method, origin = 'http://localhost:5173' } = {}) {
+  const m = method || (body === undefined ? 'GET' : 'POST');
   const response = await fetch(`${base}${path}`, {
-    method: body === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(15000),
+    method: m, signal: AbortSignal.timeout(15000),
     headers: { Origin: origin, ...(cookie ? { Cookie: cookie } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -154,3 +155,244 @@ test('login issues a valid session and logout revokes it', async () => {
   const token = login.cookie.split('=')[1];
   assert.equal(await db.session.count({ where: { tokenHash: createHash('sha256').update(token).digest('hex') } }), 0);
 });
+
+test('checkout, partial return refund and tax invoice flows work end-to-end on PostgreSQL', async () => {
+  await db.membership.updateMany({ where: { tenantId: a.tenant.id, userId: a.user.id }, data: { role: 'OWNER' } });
+
+  await move(stock({ quantity: '5' }));
+  const initialStock = parseFloat(await balance());
+
+  const checkoutRes = await request('/checkout', {
+    cookie: a.cookie,
+    body: {
+      branchId: a.branches[0].id,
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'CASH',
+      receivedAmount: '30.00',
+    },
+  });
+  assert.equal(checkoutRes.status, 200, JSON.stringify(checkoutRes.body));
+  const sale = checkoutRes.body;
+  assert.ok(sale.id);
+  assert.ok(sale.receiptNumber);
+
+  const returnablesRes = await request(`/sales/${sale.id}/returnable-items`, { cookie: a.cookie });
+  assert.equal(returnablesRes.status, 200, JSON.stringify(returnablesRes.body));
+  assert.equal(returnablesRes.body.items.length, 1);
+  const returnItem = returnablesRes.body.items[0];
+  assert.equal(returnItem.remainingQuantity, 2);
+
+  const returnRes = await request(`/sales/${sale.id}/returns`, {
+    cookie: a.cookie,
+    body: {
+      refundMethod: 'CASH',
+      reason: 'ลูกค้าขอคืน 1 ชิ้น',
+      items: [
+        {
+          saleItemId: returnItem.saleItemId,
+          quantity: '1',
+          restock: true,
+          condition: 'RESTOCKABLE',
+        },
+      ],
+    },
+  });
+  assert.equal(returnRes.status, 201, JSON.stringify(returnRes.body));
+  assert.ok(returnRes.body.returnNumber.startsWith('CN-'));
+  assert.equal(returnRes.body.items.length, 1);
+
+  const stockAfterReturn = parseFloat(await balance());
+  assert.equal(stockAfterReturn, initialStock - 2 + 1);
+
+  const taxRes = await request(`/sales/${sale.id}/tax-invoice`, {
+    cookie: a.cookie,
+    body: {
+      customerName: 'บริษัท ทดสอบ จำกัด',
+      customerTaxId: '0105559012345',
+      customerAddress: 'กรุงเทพฯ',
+      customerIsHeadOffice: true,
+      customerBranchNumber: '00000',
+    },
+  });
+  assert.equal(taxRes.status, 200, JSON.stringify(taxRes.body));
+  assert.ok(taxRes.body.invoiceNumber.startsWith('TAX-'));
+  assert.equal(taxRes.body.customer.name, 'บริษัท ทดสอบ จำกัด');
+});
+
+test('audit action definitions seeded in database and can be fetched/updated via API', async () => {
+  const count = await db.auditActionDefinition.count();
+  assert.ok(count >= 27, `Expected at least 27 seeded audit action definitions, got ${count}`);
+
+  const getRes = await request('/audits/definitions', { cookie: a.cookie });
+  assert.equal(getRes.status, 200, JSON.stringify(getRes.body));
+  assert.ok(Array.isArray(getRes.body));
+  assert.ok(getRes.body.length >= 27);
+  const saleVoidDef = getRes.body.find(d => d.action === 'SALE_VOIDED');
+  assert.ok(saleVoidDef);
+  assert.equal(saleVoidDef.severity, 'CRITICAL');
+
+  const putRes = await request('/audits/definitions/SALE_VOIDED', {
+    cookie: a.cookie,
+    method: 'PUT',
+    body: {
+      label: 'ยกเลิกรายการบิลขายพิเศษ',
+      category: 'SALES',
+      severity: 'CRITICAL',
+      description: 'ปรับเปลี่ยนผ่าน API Integration Test',
+    },
+  });
+  assert.equal(putRes.status, 200, JSON.stringify(putRes.body));
+  assert.equal(putRes.body.label, 'ยกเลิกรายการบิลขายพิเศษ');
+
+  const inDb = await db.auditActionDefinition.findUnique({ where: { action: 'SALE_VOIDED' } });
+  assert.equal(inDb.label, 'ยกเลิกรายการบิลขายพิเศษ');
+  assert.equal(inDb.description, 'ปรับเปลี่ยนผ่าน API Integration Test');
+});
+
+test('system status definitions seeded in database and can be fetched/updated via API', async () => {
+  const count = await db.systemStatusDefinition.count();
+  assert.ok(count >= 20, `Expected at least 20 seeded system status definitions, got ${count}`);
+
+  const allRes = await request('/system/statuses', { cookie: a.cookie });
+  assert.equal(allRes.status, 200, JSON.stringify(allRes.body));
+  assert.ok(Array.isArray(allRes.body));
+  assert.ok(allRes.body.length >= 20);
+
+  const transferRes = await request('/system/statuses?domain=TRANSFER', { cookie: a.cookie });
+  assert.equal(transferRes.status, 200, JSON.stringify(transferRes.body));
+  assert.ok(Array.isArray(transferRes.body));
+  assert.equal(transferRes.body.length, 3);
+  assert.ok(transferRes.body.every(s => s.domain === 'TRANSFER'));
+
+  const singleRes = await request('/system/statuses/TRANSFER/IN_TRANSIT', { cookie: a.cookie });
+  assert.equal(singleRes.status, 200, JSON.stringify(singleRes.body));
+  assert.equal(singleRes.body.code, 'IN_TRANSIT');
+  assert.equal(singleRes.body.label, 'กำลังขนส่ง');
+
+  const updateRes = await request('/system/statuses/TRANSFER/IN_TRANSIT', {
+    cookie: a.cookie,
+    method: 'PUT',
+    body: {
+      label: 'อยู่ระหว่างนำส่งสาขาปลายทาง',
+      color: '#b45309',
+      bgColor: '#fef3c7',
+      description: 'ปรับปรุงชื่อสถานะผ่าน Integration Test',
+    },
+  });
+  assert.equal(updateRes.status, 200, JSON.stringify(updateRes.body));
+  assert.equal(updateRes.body.label, 'อยู่ระหว่างนำส่งสาขาปลายทาง');
+
+  const inDb = await db.systemStatusDefinition.findUnique({
+    where: { domain_code: { domain: 'TRANSFER', code: 'IN_TRANSIT' } },
+  });
+  assert.equal(inDb.label, 'อยู่ระหว่างนำส่งสาขาปลายทาง');
+  assert.equal(inDb.color, '#b45309');
+});
+
+test('navigation menus seeded in database, filtered by role and updatable via API', async () => {
+  const count = await db.navigationMenu.count();
+  assert.ok(count >= 17, `Expected at least 17 seeded navigation menus, got ${count}`);
+
+  // Owner sees all active menus allowed for OWNER
+  const ownerRes = await request('/menus', { cookie: a.cookie });
+  assert.equal(ownerRes.status, 200, JSON.stringify(ownerRes.body));
+  assert.ok(Array.isArray(ownerRes.body));
+  assert.ok(ownerRes.body.length >= 17);
+
+  // Manageable menus endpoint (for management modal)
+  const manageRes = await request('/menus/manage', { cookie: a.cookie });
+  assert.equal(manageRes.status, 200, JSON.stringify(manageRes.body));
+  assert.ok(Array.isArray(manageRes.body));
+  assert.ok(manageRes.body.length >= 17);
+
+  // Find POS menu
+  const posMenu = manageRes.body.find(m => m.key === 'pos');
+  assert.ok(posMenu, 'Expected pos menu to exist');
+  assert.equal(posMenu.label, 'หน้าขาย (POS)');
+
+  // Owner updates label
+  const updateRes = await request(`/menus/${posMenu.id}`, {
+    cookie: a.cookie,
+    method: 'POST',
+    body: {
+      label: 'ระบบแคชเชียร์ขายหน้าร้าน (POS Pro)',
+      sortOrder: 1,
+      allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'],
+    },
+  });
+  assert.equal(updateRes.status, 200, JSON.stringify(updateRes.body));
+  assert.equal(updateRes.body.label, 'ระบบแคชเชียร์ขายหน้าร้าน (POS Pro)');
+
+  // Verify in DB
+  const inDb = await db.navigationMenu.findUnique({ where: { id: posMenu.id } });
+  assert.equal(inDb.label, 'ระบบแคชเชียร์ขายหน้าร้าน (POS Pro)');
+});
+
+test('positions and RBAC permission matrix seeded in database, queryable and updatable via API', async () => {
+  const count = await db.position.count();
+  assert.ok(count >= 6, `Expected at least 6 seeded positions, got ${count}`);
+
+  // Fetch positions via API
+  const positionsRes = await request('/positions', { cookie: a.cookie });
+  assert.equal(positionsRes.status, 200, JSON.stringify(positionsRes.body));
+  assert.ok(Array.isArray(positionsRes.body));
+  assert.ok(positionsRes.body.length >= 6);
+
+  // Check owner position has member count
+  const ownerPos = positionsRes.body.find(p => p.code === 'OWNER');
+  assert.ok(ownerPos, 'Expected OWNER position to exist');
+  assert.equal(ownerPos.isSystem, true);
+
+  // Create a custom position
+  const createRes = await request('/positions', {
+    cookie: a.cookie,
+    method: 'POST',
+    body: {
+      code: 'BARISTA_INT',
+      name: 'บาริสต้าประจำร้าน',
+      description: 'ตำแหน่งทดสอบผ่าน Integration Test',
+    },
+  });
+  assert.equal(createRes.status, 201, JSON.stringify(createRes.body));
+  assert.equal(createRes.body.code, 'BARISTA_INT');
+
+  // Fetch Permission Matrix
+  const matrixRes = await request('/positions/matrix', { cookie: a.cookie });
+  assert.equal(matrixRes.status, 200, JSON.stringify(matrixRes.body));
+  assert.ok(matrixRes.body.positions.length >= 7);
+  assert.ok(matrixRes.body.menus.length >= 17);
+  assert.ok(matrixRes.body.matrix[ownerPos.id]);
+
+  // Update permissions for custom position
+  const menuList = matrixRes.body.menus;
+  const posMenu = menuList.find(m => m.key === 'pos');
+  assert.ok(posMenu);
+
+  const updatePermsRes = await request(`/positions/${createRes.body.id}/permissions`, {
+    cookie: a.cookie,
+    method: 'PUT',
+    body: {
+      permissions: [
+        { menuId: posMenu.id, canView: true, canExport: false },
+      ],
+    },
+  });
+  assert.equal(updatePermsRes.status, 200, JSON.stringify(updatePermsRes.body));
+  assert.equal(updatePermsRes.body.ok, true);
+
+  // Verify in DB
+  const permInDb = await db.positionMenuPermission.findUnique({
+    where: {
+      positionId_menuId: {
+        positionId: createRes.body.id,
+        menuId: posMenu.id,
+      },
+    },
+  });
+  assert.ok(permInDb);
+  assert.equal(permInDb.canView, true);
+});
+
+
+
+

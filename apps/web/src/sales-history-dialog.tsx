@@ -4,6 +4,7 @@ import { AlertTriangle, Ban, CheckCircle2, Clock, FileText, Loader2, MessageCirc
 import { api, Branch, SaleHistoryItem, sendLineReceipt } from './api';
 import { TaxInvoiceDialog } from './tax-invoice-dialog';
 import { RefundDialog } from './refund-dialog';
+import { DynamicStatusBadge } from './components/status-badge';
 
 const money = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' });
 
@@ -210,18 +211,14 @@ export function SalesHistoryDialog({
                       <span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <strong>{sale.receiptNumber}</strong>
-                          <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              borderRadius: '4px',
-                              fontWeight: 600,
-                              background: isVoided ? '#fff1f2' : '#eaf8ef',
-                              color: isVoided ? '#c23f45' : '#16825d',
-                            }}
-                          >
-                            {isVoided ? 'ยกเลิกแล้ว' : 'สำเร็จ'}
-                          </span>
+                          <DynamicStatusBadge
+                            domain="SALE"
+                            code={sale.status}
+                            fallbackLabel={isVoided ? 'ยกเลิกแล้ว' : 'สำเร็จ'}
+                            fallbackColor={isVoided ? '#c23f45' : '#16825d'}
+                            fallbackBg={isVoided ? '#fff1f2' : '#eaf8ef'}
+                            style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}
+                          />
                         </div>
                         <small>
                           {new Date(sale.createdAt).toLocaleString('th-TH')} · {sale.cashierName}

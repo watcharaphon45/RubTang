@@ -33,6 +33,7 @@ import {
   updateStockTakeCounts,
 } from './api';
 import { AppSelect } from './components/app-select';
+import { DynamicStatusBadge } from './components/status-badge';
 
 export function StockTakeDialog({
   branch,
@@ -497,27 +498,19 @@ function StockTakeCard({
 
 function StatusBadge({ status }: { status: StockTakeStatus }) {
   const badgeStyle: CSSProperties = { alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600, borderRadius: '999px', padding: '3px 9px' };
-  if (status === 'IN_PROGRESS') {
-    return (
-      <span className="status" style={{ ...badgeStyle, background: '#fff5df', color: '#a36600' }}>
-        <Clock size={12} />
-        กำลังตรวจนับ
-      </span>
-    );
-  }
-  if (status === 'COMPLETED') {
-    return (
-      <span className="status" style={{ ...badgeStyle, color: '#16825d' }}>
-        <CheckCircle2 size={12} />
-        ปรับยอดแล้ว
-      </span>
-    );
-  }
+  const fallbackLabel = status === 'IN_PROGRESS' ? 'กำลังตรวจนับ' : status === 'COMPLETED' ? 'ปรับยอดแล้ว' : 'ยกเลิกแล้ว';
+  const fallbackColor = status === 'IN_PROGRESS' ? '#a36600' : status === 'COMPLETED' ? '#16825d' : '#c23f45';
+  const fallbackBg = status === 'IN_PROGRESS' ? '#fff5df' : status === 'COMPLETED' ? '#eaf8f1' : '#fff1f2';
+
   return (
-    <span className="status" style={{ ...badgeStyle, background: '#fff1f2', color: '#c23f45' }}>
-      <XCircle size={12} />
-      ยกเลิกแล้ว
-    </span>
+    <DynamicStatusBadge
+      domain="STOCK_TAKE"
+      code={status}
+      fallbackLabel={fallbackLabel}
+      fallbackColor={fallbackColor}
+      fallbackBg={fallbackBg}
+      style={badgeStyle}
+    />
   );
 }
 

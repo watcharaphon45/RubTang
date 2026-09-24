@@ -195,4 +195,116 @@ describe('AuditService', () => {
     expect(metrics.topActors[0].displayName).toBe('เจ้าของร้าน');
     expect(metrics.topActors[0].activityCount).toBe(50);
   });
+
+  it('loads action labels from database auditActionDefinition and respects overrides', async () => {
+    const mockPrisma = {
+      auditActionDefinition: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'def-1',
+            action: 'PRODUCT_UPDATED',
+            label: 'แก้ไขข้อมูลสินค้าจาก DB',
+            category: 'CATALOG_CUSTOM',
+            severity: 'WARNING',
+            description: 'Custom label test',
+          },
+        ]),
+      },
+      auditLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'log-1',
+            action: 'PRODUCT_UPDATED',
+            entityId: 'prod-1',
+            newValue: { price: '60.00' },
+            oldValue: { price: '50.00' },
+            createdAt: new Date('2026-09-23T10:00:00Z'),
+            actor: { id: 'u-owner-1', displayName: 'เจ้าของร้าน', email: 'owner@test.com' },
+          },
+        ]),
+        count: vi.fn().mockResolvedValue(1),
+      },
+    } as any;
+
+    const service = new AuditService(mockPrisma);
+    const result = await service.list(principalOwner, {});
+
+    expect(result.items[0].actionLabel).toBe('แก้ไขข้อมูลสินค้าจาก DB');
+    expect(result.items[0].category).toBe('CATALOG_CUSTOM');
+    expect(result.items[0].severity).toBe('WARNING');
+    expect(mockPrisma.auditActionDefinition.findMany).toHaveBeenCalled();
+  });
+
+  it('fetches all action definitions via getDefinitions', async () => {
+    const mockPrisma = {
+      auditActionDefinition: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'def-1',
+            action: 'SALE_COMPLETED',
+            label: 'บันทึกการขายสำเร็จ',
+            category: 'SALES',
+            severity: 'INFO',
+            description: 'คำอธิบายการขาย',
+          },
+        ]),
+      },
+    } as any;
+
+    const service = new AuditService(mockPrisma);
+    const definitions = await service.getDefinitions(principalOwner);
+
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0].action).toBe('SALE_COMPLETED');
+    expect(definitions[0].label).toBe('บันทึกการขายสำเร็จ');
+
+    await expect(service.getDefinitions(principalCashier)).rejects.toThrow('ไม่มีสิทธิ์');
+  });
+
+  it('updates action definition, invalidates cache, and validates role', async () => {
+    const mockPrisma = {
+      auditActionDefinition: {
+        upsert: vi.fn().mockResolvedValue({
+          id: 'def-1',
+          action: 'SALE_VOIDED',
+          label: 'ยกเลิกรายการขายด่วน (Void)',
+          category: 'SALES',
+          severity: 'CRITICAL',
+          description: 'ปรับเปลี่ยนคำอธิบาย',
+        }),
+      },
+    } as any;
+
+    const service = new AuditService(mockPrisma);
+
+    await expect(
+      service.updateDefinition(principalCashier, 'SALE_VOIDED', {
+        label: 'ทดสอบ',
+        category: 'SALES',
+        severity: 'CRITICAL',
+      })
+    ).rejects.toThrow('ไม่มีสิทธิ์');
+
+    const updated = await service.updateDefinition(principalManager, 'SALE_VOIDED', {
+      label: 'ยกเลิกรายการขายด่วน (Void)',
+      category: 'SALES',
+      severity: 'CRITICAL',
+      description: 'ปรับเปลี่ยนคำอธิบาย',
+    });
+
+    expect(updated.label).toBe('ยกเลิกรายการขายด่วน (Void)');
+    expect(mockPrisma.auditActionDefinition.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { action: 'SALE_VOIDED' },
+        create: expect.objectContaining({
+          action: 'SALE_VOIDED',
+          label: 'ยกเลิกรายการขายด่วน (Void)',
+        }),
+        update: expect.objectContaining({
+          label: 'ยกเลิกรายการขายด่วน (Void)',
+        }),
+      })
+    );
+  });
 });
+

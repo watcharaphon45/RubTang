@@ -1,6 +1,7 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Principal, requireBranch } from './auth';
+import { Database } from './database';
 
 /**
  * CRC-16 CCITT calculation for EMVCo standard
@@ -114,8 +115,9 @@ export function generatePromptPayPayload(options: GeneratePromptPayOptions): str
   return `${partial}${checksum}`;
 }
 
+@Injectable()
 export class PromptPayService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(@Inject(Database) private readonly prisma: Database) {}
 
   async getBranchPromptPay(principal: Principal, branchId: string) {
     requireBranch(principal, branchId);

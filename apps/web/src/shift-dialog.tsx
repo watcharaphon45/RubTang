@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, Branch, ShiftData } from './api';
+import { DynamicStatusBadge } from './components/status-badge';
 
 const money = new Intl.NumberFormat('th-TH', {
   style: 'currency',
@@ -295,7 +296,7 @@ export function ShiftDialog({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                       <strong style={{ color: '#102f5d', fontSize: '15px' }}>กำลังเปิดใช้งานกะงาน</strong>
-                      <span className="status">OPEN</span>
+                      <DynamicStatusBadge domain="SHIFT" code="OPEN" fallbackLabel="เปิดอยู่" />
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: '12px', color: '#607a9d', marginTop: '6px' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -646,9 +647,11 @@ export function ShiftDialog({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', minWidth: 0 }}>
-                        <span className={shift.status === 'OPEN' ? 'status' : 'status inactive'}>
-                          {shift.status === 'OPEN' ? '🟢 เปิดอยู่' : '🔒 ปิดกะแล้ว'}
-                        </span>
+                        <DynamicStatusBadge
+                          domain="SHIFT"
+                          code={shift.status}
+                          fallbackLabel={shift.status === 'OPEN' ? 'เปิดอยู่' : 'ปิดกะแล้ว'}
+                        />
                         <span style={{ fontSize: '12px', color: '#607a9d' }}>
                           พนักงาน: <strong style={{ color: '#163d70' }}>{shift.cashierName}</strong>
                         </span>

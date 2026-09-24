@@ -2,7 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Principal, requireBranch } from './auth';
 import { Database } from './database';
-import { parse, productReportQuerySchema, salesReportQuerySchema } from './validation';
+import {
+  parse,
+  productReportQuerySchema,
+  salesReportQuerySchema,
+  stockCardReportQuerySchema,
+  vatReportQuerySchema,
+} from './validation';
 
 @Injectable()
 export class ReportService {
@@ -265,6 +271,192 @@ export class ReportService {
         totalValuation,
         outOfStockCount,
         lowStockCount,
+      },
+      items,
+    };
+  }
+
+  async getVatSalesReport(principal: Principal, queryRaw: unknown) {
+    const query = parse(vatReportQuerySchema, queryRaw);
+    if (query.branchId) {
+      requireBranch(principal, query.branchId);
+    }
+
+    const saleWhere: Prisma.SaleWhereInput = {
+      tenantId: principal.tenantId,
+      status: 'COMPLETED',
+      ...(query.branchId
+        ? { branchId: query.branchId }
+        : principal.role !== 'OWNER'
+        ? { branchId: { in: principal.branchIds } }
+        : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            createdAt: {
+              ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+              ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const sales = await this.db.sale.findMany({
+      where: saleWhere,
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        receiptNumber: true,
+        total: true,
+        subtotal: true,
+        discount: true,
+        createdAt: true,
+        branch: { select: { id: true, name: true } },
+      },
+    });
+
+    const taxInvoices = await this.db.taxInvoice.findMany({
+      where: {
+        tenantId: principal.tenantId,
+        status: 'ISSUED',
+        saleId: { in: sales.map(s => s.id) },
+      },
+      select: {
+        id: true,
+        saleId: true,
+        invoiceNumber: true,
+        customerName: true,
+        customerTaxId: true,
+        customerBranchNumber: true,
+        customerIsHeadOffice: true,
+        taxableAmount: true,
+        vatAmount: true,
+        total: true,
+      },
+    });
+
+    const invoiceBySaleId = new Map(taxInvoices.map(ti => [ti.saleId, ti]));
+
+    let totalGrossSales = 0;
+    let totalTaxableBase = 0;
+    let totalOutputVat = 0;
+    let fullInvoiceCount = 0;
+    let abbCount = 0;
+
+    const items = sales.map(s => {
+      const full = invoiceBySaleId.get(s.id);
+      const isFull = Boolean(full);
+
+      let documentNumber = s.receiptNumber;
+      let customerName = 'ลูกค้ารายย่อย / หน้าร้าน';
+      let customerTaxId = '-';
+      let customerBranch = '-';
+      let taxable = 0;
+      let vat = 0;
+      let total = Number(s.total);
+
+      if (full) {
+        fullInvoiceCount += 1;
+        documentNumber = full.invoiceNumber;
+        customerName = full.customerName;
+        customerTaxId = full.customerTaxId || '-';
+        customerBranch = full.customerIsHeadOffice ? 'สนญ. (00000)' : full.customerBranchNumber || '00000';
+        taxable = Number(full.taxableAmount);
+        vat = Number(full.vatAmount);
+        total = Number(full.total);
+      } else {
+        abbCount += 1;
+        taxable = Math.round((total / 1.07) * 100) / 100;
+        vat = Math.round((total - taxable) * 100) / 100;
+      }
+
+      totalGrossSales += total;
+      totalTaxableBase += taxable;
+      totalOutputVat += vat;
+
+      return {
+        saleId: s.id,
+        createdAt: s.createdAt.toISOString(),
+        branchId: s.branch.id,
+        branchName: s.branch.name,
+        documentNumber,
+        invoiceType: isFull ? 'FULL' : 'ABB',
+        customerName,
+        customerTaxId,
+        customerBranch,
+        taxableAmount: taxable,
+        vatAmount: vat,
+        totalAmount: total,
+      };
+    });
+
+    return {
+      summary: {
+        totalSalesCount: sales.length,
+        totalGrossSales: Math.round(totalGrossSales * 100) / 100,
+        totalTaxableBase: Math.round(totalTaxableBase * 100) / 100,
+        totalOutputVat: Math.round(totalOutputVat * 100) / 100,
+        fullInvoiceCount,
+        abbCount,
+      },
+      items,
+    };
+  }
+
+  async getStockCardReport(principal: Principal, queryRaw: unknown) {
+    const query = parse(stockCardReportQuerySchema, queryRaw);
+    if (query.branchId) {
+      requireBranch(principal, query.branchId);
+    }
+
+    const where: Prisma.StockMovementWhereInput = {
+      tenantId: principal.tenantId,
+      ...(query.branchId
+        ? { branchId: query.branchId }
+        : principal.role !== 'OWNER'
+        ? { branchId: { in: principal.branchIds } }
+        : {}),
+      ...(query.productId ? { productId: query.productId } : {}),
+      ...(query.startDate || query.endDate
+        ? {
+            createdAt: {
+              ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+              ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const movements = await this.db.stockMovement.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: query.limit,
+      include: {
+        product: { select: { id: true, name: true, sku: true, barcode: true } },
+        branch: { select: { id: true, name: true } },
+        actor: { include: { user: { select: { displayName: true } } } },
+      },
+    });
+
+    const items = movements.map(m => ({
+      id: m.id,
+      createdAt: m.createdAt.toISOString(),
+      branchId: m.branchId,
+      branchName: m.branch.name,
+      productId: m.productId,
+      productName: m.product.name,
+      sku: m.product.sku,
+      barcode: m.product.barcode || '-',
+      type: m.type,
+      quantity: Number(m.quantity),
+      balanceBefore: Number(m.balanceBefore),
+      balanceAfter: Number(m.balanceAfter),
+      actorName: m.actor?.user?.displayName || 'ระบบ',
+      note: m.note || '-',
+    }));
+
+    return {
+      summary: {
+        totalRecords: items.length,
       },
       items,
     };

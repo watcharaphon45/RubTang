@@ -1,6 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { Principal } from './auth';
+import { Database } from './database';
+import { parse, updateAuditActionDefinitionSchema } from './validation';
 
 export interface AuditQueryFilter {
   action?: string;
@@ -13,75 +15,56 @@ export interface AuditQueryFilter {
   cursor?: string;
 }
 
-export const ACTION_CATEGORIES: Record<string, string[]> = {
-  SALES: ['SALE_COMPLETED', 'SALE_VOIDED', 'SALE_RETURN_CREATED', 'LINE_RECEIPT_SENT'],
-  INVENTORY: [
-    'STOCK_MOVEMENT_CREATED',
-    'TRANSFER_INITIATED',
-    'TRANSFER_COMPLETED',
-    'TRANSFER_CANCELLED',
-    'STOCK_TAKE_STARTED',
-    'STOCK_TAKE_APPROVED',
-    'STOCK_TAKE_CANCELLED',
-  ],
-  CATALOG: ['PRODUCT_CREATED', 'PRODUCT_UPDATED'],
-  SHIFT: ['SHIFT_OPENED', 'SHIFT_CLOSED'],
-  MARKETING: [
-    'PROMOTION_CREATED',
-    'COUPON_REDEEMED',
-    'POINTS_ADJUSTED',
-    'LINE_CUSTOMER_LINKED',
-    'LINE_CUSTOMER_UNLINKED',
-  ],
-  PROCUREMENT: [
-    'SUPPLIER_CREATED',
-    'PURCHASE_ORDER_CREATED',
-    'PURCHASE_ORDER_RECEIVED',
-  ],
-  ADMIN: ['TENANT_CREATED', 'BRANCH_CREATED', 'STAFF_INVITED', 'LINE_SETTINGS_UPDATED'],
-};
+export interface ActionMetadata {
+  label: string;
+  category: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  description?: string | null;
+}
 
-export const ACTION_METADATA: Record<
-  string,
-  { label: string; category: string; severity: 'INFO' | 'WARNING' | 'CRITICAL' }
-> = {
-  TENANT_CREATED: { label: 'สร้างร้านค้าใหม่', category: 'ADMIN', severity: 'INFO' },
-  BRANCH_CREATED: { label: 'เพิ่มสาขาใหม่', category: 'ADMIN', severity: 'INFO' },
-  STAFF_INVITED: { label: 'เพิ่ม/เชิญพนักงาน', category: 'ADMIN', severity: 'WARNING' },
-  LINE_SETTINGS_UPDATED: { label: 'แก้ไขการตั้งค่า LINE OA', category: 'ADMIN', severity: 'INFO' },
-  PRODUCT_CREATED: { label: 'สร้างรายการสินค้า', category: 'CATALOG', severity: 'INFO' },
-  PRODUCT_UPDATED: { label: 'แก้ไขข้อมูลสินค้า/ราคา', category: 'CATALOG', severity: 'INFO' },
-  STOCK_MOVEMENT_CREATED: { label: 'รับเข้า/ปรับยอดสต็อก', category: 'INVENTORY', severity: 'WARNING' },
-  TRANSFER_INITIATED: { label: 'เปิดใบโอนสินค้า', category: 'INVENTORY', severity: 'INFO' },
-  TRANSFER_COMPLETED: { label: 'รับสินค้าโอนเข้าสาขา', category: 'INVENTORY', severity: 'INFO' },
-  TRANSFER_CANCELLED: { label: 'ยกเลิกใบโอนสินค้า', category: 'INVENTORY', severity: 'WARNING' },
-  STOCK_TAKE_STARTED: { label: 'เปิดรอบตรวจนับสต็อก', category: 'INVENTORY', severity: 'INFO' },
-  STOCK_TAKE_APPROVED: { label: 'อนุมัติกระทบยอดสต็อก', category: 'INVENTORY', severity: 'WARNING' },
-  STOCK_TAKE_CANCELLED: { label: 'ยกเลิกรอบตรวจนับสต็อก', category: 'INVENTORY', severity: 'WARNING' },
-  SHIFT_OPENED: { label: 'เปิดกะเงินสด', category: 'SHIFT', severity: 'INFO' },
-  SHIFT_CLOSED: { label: 'ปิดกะเงินสดและส่งยอด', category: 'SHIFT', severity: 'INFO' },
-  SALE_COMPLETED: { label: 'บันทึกการขาย', category: 'SALES', severity: 'INFO' },
-  SALE_VOIDED: { label: 'ยกเลิกบิลขาย (Void)', category: 'SALES', severity: 'CRITICAL' },
-  SALE_RETURN_CREATED: { label: 'คืนสินค้า/ออกใบลดหนี้', category: 'SALES', severity: 'WARNING' },
-  LINE_RECEIPT_SENT: { label: 'ส่ง E-Receipt เข้า LINE', category: 'SALES', severity: 'INFO' },
-  PROMOTION_CREATED: { label: 'สร้างโปรโมชัน/คูปอง', category: 'MARKETING', severity: 'INFO' },
-  COUPON_REDEEMED: { label: 'ใช้คูปองส่วนลด', category: 'MARKETING', severity: 'INFO' },
-  POINTS_ADJUSTED: { label: 'ปรับแต้มสะสมสมาชิก', category: 'MARKETING', severity: 'WARNING' },
-  LINE_CUSTOMER_LINKED: { label: 'ผูกบัญชี LINE สมาชิก', category: 'MARKETING', severity: 'INFO' },
-  LINE_CUSTOMER_UNLINKED: { label: 'ยกเลิกผูกบัญชี LINE สมาชิก', category: 'MARKETING', severity: 'INFO' },
-  SUPPLIER_CREATED: { label: 'เพิ่มผู้จำหน่าย', category: 'PROCUREMENT', severity: 'INFO' },
-  PURCHASE_ORDER_CREATED: { label: 'สร้างใบสั่งซื้อ (PO)', category: 'PROCUREMENT', severity: 'INFO' },
-  PURCHASE_ORDER_RECEIVED: { label: 'รับสินค้าตามใบสั่งซื้อ', category: 'PROCUREMENT', severity: 'INFO' },
-};
+export { ACTION_CATEGORIES, ACTION_METADATA } from './constants';
+import { ACTION_CATEGORIES, ACTION_METADATA } from './constants';
 
 @Injectable()
 export class AuditService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private metadataCache: Map<string, ActionMetadata> | null = null;
+
+  constructor(@Inject(Database) private readonly prisma: Database) {}
 
   private requireManagerOrOwner(principal: Principal) {
     if (principal.role !== 'OWNER' && principal.role !== 'MANAGER') {
       throw new ForbiddenException('ไม่มีสิทธิ์เข้าถึงประวัติการตรวจสอบ (Audit Log)');
     }
+  }
+
+  async getActionMetadataMap(): Promise<Map<string, ActionMetadata>> {
+    if (this.metadataCache) {
+      return this.metadataCache;
+    }
+
+    const map = new Map<string, ActionMetadata>();
+    for (const [action, meta] of Object.entries(ACTION_METADATA)) {
+      map.set(action, { ...meta });
+    }
+
+    try {
+      if (this.prisma.auditActionDefinition?.findMany) {
+        const definitions = await this.prisma.auditActionDefinition.findMany();
+        for (const def of definitions) {
+          map.set(def.action, {
+            label: def.label,
+            category: def.category,
+            severity: def.severity as 'INFO' | 'WARNING' | 'CRITICAL',
+            description: def.description,
+          });
+        }
+      }
+    } catch {
+      // In case table does not exist or Prisma model is not available
+    }
+
+    this.metadataCache = map;
+    return map;
   }
 
   async list(principal: Principal, query: AuditQueryFilter) {
@@ -95,8 +78,22 @@ export class AuditService {
     if (query.action && query.action !== 'ทั้งหมด') {
       where.action = query.action;
     } else if (query.category && query.category !== 'ทั้งหมด') {
-      const actionsInCategory = ACTION_CATEGORIES[query.category];
-      if (actionsInCategory && actionsInCategory.length > 0) {
+      const metadataMap = await this.getActionMetadataMap();
+      const actionsInCategory: string[] = [];
+      for (const [act, meta] of metadataMap.entries()) {
+        if (meta.category === query.category) {
+          actionsInCategory.push(act);
+        }
+      }
+      const predefined = ACTION_CATEGORIES[query.category];
+      if (
+        predefined &&
+        predefined.length > 0 &&
+        actionsInCategory.length === predefined.length &&
+        predefined.every((a) => actionsInCategory.includes(a))
+      ) {
+        where.action = { in: predefined };
+      } else if (actionsInCategory.length > 0) {
         where.action = { in: actionsInCategory };
       }
     }
@@ -130,7 +127,7 @@ export class AuditService {
 
     const limit = Math.min(query.limit || 50, 100);
 
-    const [items, totalCount] = await Promise.all([
+    const [items, totalCount, metadataMap] = await Promise.all([
       this.prisma.auditLog.findMany({
         where,
         take: limit,
@@ -148,10 +145,11 @@ export class AuditService {
         },
       }),
       this.prisma.auditLog.count({ where }),
+      this.getActionMetadataMap(),
     ]);
 
     const formattedItems = items.map((item) => {
-      const meta = ACTION_METADATA[item.action] || {
+      const meta = metadataMap.get(item.action) || {
         label: item.action,
         category: 'OTHER',
         severity: 'INFO',
@@ -187,27 +185,30 @@ export class AuditService {
   async getById(principal: Principal, id: string) {
     this.requireManagerOrOwner(principal);
 
-    const item = await this.prisma.auditLog.findFirst({
-      where: {
-        id,
-        tenantId: principal.tenantId,
-      },
-      include: {
-        actor: {
-          select: {
-            id: true,
-            displayName: true,
-            email: true,
+    const [item, metadataMap] = await Promise.all([
+      this.prisma.auditLog.findFirst({
+        where: {
+          id,
+          tenantId: principal.tenantId,
+        },
+        include: {
+          actor: {
+            select: {
+              id: true,
+              displayName: true,
+              email: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.getActionMetadataMap(),
+    ]);
 
     if (!item) {
       throw new NotFoundException('ไม่พบรายการประวัติการเปลี่ยนแปลง');
     }
 
-    const meta = ACTION_METADATA[item.action] || {
+    const meta = metadataMap.get(item.action) || {
       label: item.action,
       category: 'OTHER',
       severity: 'INFO',
@@ -294,18 +295,85 @@ export class AuditService {
   async getActions(principal: Principal) {
     this.requireManagerOrOwner(principal);
 
-    const groups = await this.prisma.auditLog.groupBy({
-      by: ['action'],
-      where: { tenantId: principal.tenantId },
-      _count: { action: true },
+    const [groups, metadataMap] = await Promise.all([
+      this.prisma.auditLog.groupBy({
+        by: ['action'],
+        where: { tenantId: principal.tenantId },
+        _count: { action: true },
+      }),
+      this.getActionMetadataMap(),
+    ]);
+
+    return groups.map((g) => {
+      const meta = metadataMap.get(g.action);
+      return {
+        action: g.action,
+        count: g._count.action,
+        label: meta?.label || g.action,
+        category: meta?.category || 'OTHER',
+        severity: meta?.severity || 'INFO',
+      };
+    });
+  }
+
+  async getDefinitions(principal: Principal) {
+    this.requireManagerOrOwner(principal);
+
+    try {
+      if (this.prisma.auditActionDefinition?.findMany) {
+        const definitions = await this.prisma.auditActionDefinition.findMany({
+          orderBy: [{ category: 'asc' }, { action: 'asc' }],
+        });
+        if (definitions && definitions.length > 0) {
+          return definitions;
+        }
+      }
+    } catch {
+      // Fallback if table doesn't exist
+    }
+
+    return Object.entries(ACTION_METADATA).map(([action, meta]) => ({
+      id: action,
+      action,
+      label: meta.label,
+      category: meta.category,
+      severity: meta.severity,
+      description: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+  }
+
+  async updateDefinition(principal: Principal, action: string, body: unknown) {
+    this.requireManagerOrOwner(principal);
+    const data = parse(updateAuditActionDefinitionSchema, body);
+
+    const defaultMeta = ACTION_METADATA[action] || {
+      label: action,
+      category: 'OTHER',
+      severity: 'INFO',
+    };
+
+    const updated = await this.prisma.auditActionDefinition.upsert({
+      where: { action },
+      create: {
+        action,
+        label: data.label,
+        category: data.category,
+        severity: data.severity,
+        description: data.description ?? null,
+      },
+      update: {
+        label: data.label,
+        category: data.category,
+        severity: data.severity,
+        description: data.description !== undefined ? data.description : null,
+      },
     });
 
-    return groups.map((g) => ({
-      action: g.action,
-      count: g._count.action,
-      label: ACTION_METADATA[g.action]?.label || g.action,
-      category: ACTION_METADATA[g.action]?.category || 'OTHER',
-      severity: ACTION_METADATA[g.action]?.severity || 'INFO',
-    }));
+    // Invalidate cache
+    this.metadataCache = null;
+
+    return updated;
   }
 }

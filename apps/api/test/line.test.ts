@@ -232,4 +232,146 @@ describe('LineService (LINE Official Account & E-Receipt)', () => {
       })
     );
   });
+
+  it('builds a valid LINE Flex Low Stock Alert structure', () => {
+    const mockPrisma = {} as any;
+    const service = new LineService(mockPrisma);
+
+    const items = [
+      { productId: 'p-1', name: 'เมล็ดกาแฟ', sku: 'COFFEE-01', quantity: 2, reorderPoint: 5 },
+      { productId: 'p-2', name: 'นมสด', sku: 'MILK-01', quantity: 0, reorderPoint: 10 },
+    ];
+
+    const flex = service.buildFlexLowStockAlert(items, 'สาขาเอกมัย', 5, 'ร้านรับตังค์ คาเฟ่');
+
+    expect(flex.type).toBe('flex');
+    expect(flex.altText).toContain('แจ้งเตือนสินค้าใกล้หมด 2 รายการ');
+    expect(flex.contents.header.backgroundColor).toBe('#dc2626');
+    expect(flex.contents.header.contents[1].text).toBe('ร้านรับตังค์ คาเฟ่');
+    expect(flex.contents.body.contents.length).toBeGreaterThan(0);
+    expect(flex.contents.footer.contents[0].action.uri).toContain('/inventory');
+  });
+
+  it('gets low stock items and generates preview', async () => {
+    const mockPrisma = {
+      lineOaSettings: {
+        findUnique: vi.fn().mockResolvedValue({
+          lowStockAlertEnabled: true,
+          lowStockThreshold: 5,
+          lowStockTargetUserId: 'U_manager_123',
+        }),
+      },
+      tenant: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'ร้านกาแฟหอม' }),
+      },
+      branch: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'สาขาทองหล่อ' }),
+      },
+      inventoryBalance: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            branchId: 'b-1',
+            quantity: 3,
+            branch: { name: 'สาขาทองหล่อ' },
+            product: { id: 'p-1', name: 'ชาเขียว', sku: 'TEA-01', reorderPoint: 5, price: 45 },
+          },
+          {
+            branchId: 'b-1',
+            quantity: 12,
+            branch: { name: 'สาขาทองหล่อ' },
+            product: { id: 'p-2', name: 'ชาไทย', sku: 'TEA-02', reorderPoint: 5, price: 40 },
+          },
+        ]),
+      },
+    } as any;
+
+    const service = new LineService(mockPrisma);
+    const preview = await service.getLowStockPreview(ownerPrincipal, 'b-1');
+
+    expect(preview.totalCount).toBe(1);
+    expect(preview.items[0].name).toBe('ชาเขียว');
+    expect(preview.items[0].quantity).toBe(3);
+    expect(preview.flexMessage).toBeDefined();
+    expect(preview.flexMessage.contents.header.contents[1].text).toBe('ร้านกาแฟหอม');
+  });
+
+  it('sends low stock alert via LINE OA push message', async () => {
+    const mockPrisma = {
+      lineOaSettings: {
+        findUnique: vi.fn().mockResolvedValue({
+          channelAccessToken: 'mock_token',
+          lowStockThreshold: 5,
+          lowStockTargetUserId: 'U_target_manager',
+        }),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+      tenant: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'ร้านทดสอบ' }),
+      },
+      branch: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'สาขาหลัก' }),
+      },
+      inventoryBalance: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            branchId: 'b-1',
+            quantity: 1,
+            branch: { name: 'สาขาหลัก' },
+            product: { id: 'p-1', name: 'สินค้าขาดแคลน', sku: 'SHORT-01', reorderPoint: 5 },
+          },
+        ]),
+      },
+      auditLog: {
+        create: vi.fn().mockResolvedValue({ id: 'audit-1' }),
+      },
+    } as any;
+
+    const service = new LineService(mockPrisma);
+    const result = await service.sendLowStockAlert(ownerPrincipal, { branchId: 'b-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.targetUserId).toBe('U_target_manager');
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'LINE_LOW_STOCK_ALERT_SENT',
+          tenantId: 'tenant-1',
+        }),
+      })
+    );
+  });
+
+  it('handles zero low stock items gracefully when sending alert', async () => {
+    const mockPrisma = {
+      lineOaSettings: {
+        findUnique: vi.fn().mockResolvedValue({
+          lowStockThreshold: 5,
+        }),
+      },
+      tenant: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'ร้านทดสอบ' }),
+      },
+      branch: {
+        findUnique: vi.fn().mockResolvedValue({ name: 'สาขาหลัก' }),
+      },
+      inventoryBalance: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            branchId: 'b-1',
+            quantity: 50,
+            branch: { name: 'สาขาหลัก' },
+            product: { id: 'p-1', name: 'สินค้าล้นสต็อก', sku: 'OVER-01', reorderPoint: 5 },
+          },
+        ]),
+      },
+    } as any;
+
+    const service = new LineService(mockPrisma);
+    const result = await service.sendLowStockAlert(ownerPrincipal, { branchId: 'b-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.count).toBe(0);
+    expect(result.message).toContain('ไม่มีรายการสินค้าที่สต็อกต่ำกว่าเกณฑ์');
+  });
 });

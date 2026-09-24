@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { api, Branch, Product, Profile, StockTransferData } from './api';
 import { AppSelect } from './components/app-select';
+import { DynamicStatusBadge } from './components/status-badge';
 
 // Small shared inline styles (palette from styles.css theme)
 const chipButton: CSSProperties = { fontSize: '12px', padding: '5px 11px', borderRadius: '6px' };
@@ -319,13 +320,7 @@ export function TransferDialog({
                           <strong style={{ fontFamily: 'ui-monospace, Consolas, monospace', color: '#163d70', letterSpacing: '.3px' }}>
                             {tr.transferNumber}
                           </strong>
-                          <span className="status" style={{ ...statusBadgeStyle(tr.status), fontSize: '11px', fontWeight: 700 }}>
-                            {tr.status === 'IN_TRANSIT'
-                              ? '🚚 กำลังขนส่ง'
-                              : tr.status === 'COMPLETED'
-                              ? '✅ เสร็จสิ้น'
-                              : '❌ ยกเลิก'}
-                          </span>
+                          <DynamicStatusBadge domain="TRANSFER" code={tr.status} style={{ fontSize: '11px', fontWeight: 700 }} />
                         </div>
 
                         <span className="help" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

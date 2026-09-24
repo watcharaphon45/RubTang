@@ -1,8 +1,8 @@
-import React, { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import React, { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, ArrowRight, BadgePercent, BarChart3, Boxes, Building, Building2, Check, CircleDollarSign, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, FileText, History, LogOut, Menu, MessageCircle, Package, Plus, Search, ShieldCheck, ShoppingCart, Store, Tag, UserRound, X } from 'lucide-react';
-import { api, ApiError, isMockMode, Product, Profile } from './api';
+import { ArrowLeftRight, ArrowRight, BadgePercent, BarChart3, Boxes, Building, Building2, Check, CircleDollarSign, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, FileText, History, LogOut, Menu, MessageCircle, Package, Plus, Search, ShieldCheck, ShoppingCart, SlidersHorizontal, Store, Tag, UserRound, X } from 'lucide-react';
+import { api, ApiError, getNavigationMenus, isMockMode, NavigationMenuItem, Product, Profile } from './api';
 import { HistoryDialog, StockForm } from './inventory';
 import { SetupPreview } from './setup-preview';
 import { CheckoutPreview } from './checkout-preview';
@@ -23,16 +23,42 @@ import { LineDialog } from './line-dialog';
 import { SupplierPreview } from './supplier-preview';
 import { SupplierDialog } from './supplier-dialog';
 import { AuditDialog } from './audit-dialog';
+import { MasterDataDialog } from './master-data-dialog';
 import { SubscriptionPreview } from './subscription-preview';
 import { BranchesStaffDialog } from './branches-staff-dialog';
 import { StockTakeDialog } from './stock-take-dialog';
 import { BarcodeDialog } from './barcode-dialog';
+import { generateInternalBarcode } from './barcode-engine';
 import logo from './assets/logo_rub_tung.png';
 import { AppSelect } from './components/app-select';
 import './styles.css';
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 15_000 } } });
 const currency = new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' });
+
+function MenuIcon({ icon, size = 19 }: { icon: string; size?: number }) {
+  switch (icon) {
+    case 'BarChart3': return <BarChart3 size={size} />;
+    case 'ShoppingCart': return <ShoppingCart size={size} />;
+    case 'CircleDollarSign': return <CircleDollarSign size={size} />;
+    case 'FileText': return <FileText size={size} />;
+    case 'UserRound': return <UserRound size={size} />;
+    case 'BadgePercent': return <BadgePercent size={size} />;
+    case 'MessageCircle': return <MessageCircle size={size} />;
+    case 'Package': return <Package size={size} />;
+    case 'ArrowLeftRight': return <ArrowLeftRight size={size} />;
+    case 'ClipboardCheck': return <ClipboardCheck size={size} />;
+    case 'Tag': return <Tag size={size} />;
+    case 'Building': return <Building size={size} />;
+    case 'ClipboardList': return <ClipboardList size={size} />;
+    case 'FileSpreadsheet': return <FileSpreadsheet size={size} />;
+    case 'Building2': return <Building2 size={size} />;
+    case 'SlidersHorizontal': return <SlidersHorizontal size={size} />;
+    case 'History': return <History size={size} />;
+    case 'CreditCard': return <CreditCard size={size} />;
+    default: return <Tag size={size} />;
+  }
+}
 
 function Brand() { return <div className="brand"><img className="brand-logo" src={logo} alt="รับตังค์" /><div>รับตังค์<span>RUBTANG POS</span></div></div>; }
 function SidebarSection({ title, children }: { title: string; children: ReactNode }) { return <section className="sidebar-section"><span className="nav-caption">{title}</span>{children}</section>; }
@@ -57,15 +83,17 @@ function AuthScreen({ onSuccess }: { onSuccess: () => void }) {
 
 function ProductForm({ close, saved, product }: { close: () => void; saved: () => void; product?: Product }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [skuValue, setSkuValue] = useState(product?.sku ?? '');
+  const [barcodeValue, setBarcodeValue] = useState(product?.barcode ?? '');
   const mutation = useMutation({ mutationFn: (body: Record<string, unknown>) => api(product ? `/products/${product.id}` : '/products', body), onSuccess: saved });
   useEffect(() => { const element = dialog.current; element?.showModal(); return () => element?.close(); }, []);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget));
-    mutation.mutate(product ? { ...values, active: values.active === 'on' } : values);
+    mutation.mutate(product ? { ...values, barcode: barcodeValue, active: values.active === 'on' } : { ...values, barcode: barcodeValue });
   }
   return <dialog ref={dialog} className="modal" aria-labelledby="product-title" onCancel={event => { event.preventDefault(); if (!mutation.isPending) close(); }}><div className="section-heading"><h2 id="product-title">{product ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h2><button type="button" className="icon-button" onClick={close} aria-label="ปิด" disabled={mutation.isPending}><X /></button></div><p className="muted">การเปลี่ยนแปลงสินค้ามีผลกับทุกสาขาของร้าน</p><form onSubmit={submit}>
     <label>ชื่อสินค้า<input name="name" autoFocus required maxLength={200} defaultValue={product?.name} placeholder="เช่น น้ำดื่ม 600 มล." /></label>
-    <div className="form-grid"><label>รหัส SKU<input name="sku" required maxLength={80} defaultValue={product?.sku} placeholder="DRINK-001" /></label><label>บาร์โค้ด (ถ้ามี)<input name="barcode" maxLength={80} defaultValue={product?.barcode ?? ''} /></label></div>
+    <div className="form-grid"><label>รหัส SKU<input name="sku" required maxLength={80} value={skuValue} onChange={e => setSkuValue(e.target.value)} placeholder="DRINK-001" /></label><label><span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>บาร์โค้ด (ถ้ามี)</span><button type="button" className="text-button" style={{ padding: 0, fontSize: '11px', textDecoration: 'underline' }} onClick={() => setBarcodeValue(generateInternalBarcode(skuValue))}>สุ่มบาร์โค้ด EAN-13</button></span><input name="barcode" maxLength={80} value={barcodeValue} onChange={e => setBarcodeValue(e.target.value)} placeholder="เช่น 8850000000010 หรือกดสุ่ม" /></label></div>
     <label>ราคาขาย (บาท)<input name="price" type="number" min="0" max="9999999999.99" step="0.01" required defaultValue={product?.price} placeholder="0.00" /></label>
     {product ? <label className="checkbox-label"><input name="active" type="checkbox" defaultChecked={product.active} />เปิดใช้งานสินค้า</label> : <p className="help">สินค้าใหม่เริ่มต้นด้วยสต็อก 0 จากนั้นกดรับเข้า / ปรับสต็อกเพื่อเพิ่มจำนวน</p>}
     <ErrorMessage error={mutation.error} /><div className="modal-actions"><button type="button" className="secondary" onClick={close} disabled={mutation.isPending}>ยกเลิก</button><button className="primary" disabled={mutation.isPending}>{mutation.isPending ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></div>
@@ -100,6 +128,7 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
   const [showSupplierPreview, setShowSupplierPreview] = useState(false);
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
   const [showAuditDialog, setShowAuditDialog] = useState(false);
+  const [showMasterDataDialog, setShowMasterDataDialog] = useState(false);
   const [showSubscriptionPreview, setShowSubscriptionPreview] = useState(false);
   const [showBranchesStaff, setShowBranchesStaff] = useState(false);
   const [showStockTakeDialog, setShowStockTakeDialog] = useState(false);
@@ -110,18 +139,87 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
   const [menuOpen, setMenuOpen] = useState(false);
   const logoutMutation = useMutation({ mutationFn: logout });
   const products = useQuery({ queryKey: ['products', profile.tenant.id, branchId, query], queryFn: () => api<Product[]>(`/products?${new URLSearchParams({ branchId, search: query })}`), enabled: Boolean(branchId) });
+  const menusQuery = useQuery({ queryKey: ['menus', profile.role, profile.positionId], queryFn: () => getNavigationMenus() });
+
+  const menuSections = useMemo(() => {
+    const list = menusQuery.data ?? [];
+    const sectionsMap = new Map<string, { label: string; items: NavigationMenuItem[] }>();
+    for (const item of list) {
+      if (!sectionsMap.has(item.section)) {
+        sectionsMap.set(item.section, { label: item.sectionLabel, items: [] });
+      }
+      sectionsMap.get(item.section)!.items.push(item);
+    }
+    return Array.from(sectionsMap.entries()).map(([section, { label, items }]) => ({
+      section,
+      label,
+      items,
+    }));
+  }, [menusQuery.data]);
+
+  const handleMenuAction = (key: string) => {
+    switch (key) {
+      case 'dashboard': setShowDashboardDialog(true); break;
+      case 'pos': setShowCheckoutPreview(true); break;
+      case 'shifts': setShowShiftDialog(true); break;
+      case 'sales_history': setShowSalesHistory(true); break;
+      case 'customers': setShowCustomerDialog(true); break;
+      case 'promotions': setShowPromotionDialog(true); break;
+      case 'line_oa': setShowLineDialog(true); break;
+      case 'products': break;
+      case 'transfers': setShowTransferDialog(true); break;
+      case 'stock_take': setShowStockTakeDialog(true); break;
+      case 'barcode': setSelectedBarcodeProduct(null); setShowBarcodeDialog(true); break;
+      case 'suppliers': setShowSupplierDialog(true); break;
+      case 'procurement': setShowPurchaseOrderDialog(true); break;
+      case 'reports': setShowReportDialog(true); break;
+      case 'branches_staff': setShowBranchesStaff(true); break;
+      case 'master_data': setShowMasterDataDialog(true); break;
+      case 'audit_log': setShowAuditDialog(true); break;
+      case 'subscription': setShowSubscriptionPreview(true); break;
+      case 'setup': setShowSetupPreview(true); break;
+    }
+  };
+
   async function saved() { setShowForm(false); setEditProduct(undefined); setNotice('บันทึกสินค้าเรียบร้อยแล้ว'); await queryClient.invalidateQueries({ queryKey: ['products'] }); }
   async function refreshStock() { await Promise.all([queryClient.invalidateQueries({ queryKey: ['products'] }), queryClient.invalidateQueries({ queryKey: ['movements'] })]); }
   const go = (open: () => void) => () => { setMenuOpen(false); open(); };
   const openBarcode = () => { setSelectedBarcodeProduct(null); setShowBarcodeDialog(true); };
   return <div className="workspace"><aside className="sidebar"><Brand /><button type="button" className="icon-button sidebar-toggle" aria-label={menuOpen ? 'ปิดเมนู' : 'เปิดเมนู'} aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button><div className="shop-card"><span className="shop-avatar">{profile.tenant.name.slice(0, 1)}</span><div><strong>{profile.tenant.name}</strong><small>พื้นที่จัดการร้าน</small></div></div>
     <nav className={`sidebar-nav ${menuOpen ? 'open' : ''}`} aria-label="เมนูหลัก">
-      <SidebarSection title="หน้าหลัก"><NavButton icon={<BarChart3 size={19} />} label="ภาพรวม (Dashboard)" onClick={go(() => setShowDashboardDialog(true))} /></SidebarSection>
-      <SidebarSection title="ขายหน้าร้าน"><NavButton icon={<ShoppingCart size={19} />} label="หน้าขาย (POS)" onClick={go(() => setShowCheckoutPreview(true))} /><NavButton icon={<CircleDollarSign size={19} />} label="กะเงินสด" onClick={go(() => setShowShiftDialog(true))} /><NavButton icon={<FileText size={19} />} label="ประวัติการขาย" onClick={go(() => setShowSalesHistory(true))} /></SidebarSection>
-      <SidebarSection title="ลูกค้าและการตลาด"><NavButton icon={<UserRound size={19} />} label="ลูกค้าและสมาชิก" onClick={go(() => setShowCustomerDialog(true))} /><NavButton icon={<BadgePercent size={19} />} label="โปรโมชันและคูปอง" onClick={go(() => setShowPromotionDialog(true))} />{profile.role !== 'CASHIER' && <NavButton icon={<MessageCircle size={19} />} label="LINE OA & E-Receipt" onClick={go(() => setShowLineDialog(true))} />}</SidebarSection>
-      <SidebarSection title="สินค้าและสต็อก"><div className="nav-item active" aria-current="page"><Package size={19} />สินค้า</div><NavButton icon={<ArrowLeftRight size={19} />} label="โอนย้ายสต็อก" onClick={go(() => setShowTransferDialog(true))} /><NavButton icon={<ClipboardCheck size={19} />} label="ตรวจนับสต็อก" onClick={go(() => setShowStockTakeDialog(true))} /><NavButton icon={<Tag size={19} />} label="พิมพ์บาร์โค้ด / ป้ายราคา" onClick={go(openBarcode)} /><NavButton icon={<Building size={19} />} label="ผู้จำหน่าย" onClick={go(() => setShowSupplierDialog(true))} /><NavButton icon={<ClipboardList size={19} />} label="สั่งซื้อและรับสินค้า" onClick={go(() => setShowPurchaseOrderDialog(true))} /></SidebarSection>
-      <SidebarSection title="จัดการร้าน"><NavButton icon={<FileSpreadsheet size={19} />} label="รายงานยอดขาย" onClick={go(() => setShowReportDialog(true))} />{profile.role === 'OWNER' && <NavButton icon={<Building2 size={19} />} label="สาขาและพนักงาน" onClick={go(() => setShowBranchesStaff(true))} />}{profile.role !== 'CASHIER' && <NavButton icon={<History size={19} />} label="ประวัติการตรวจสอบ (Audit)" onClick={go(() => setShowAuditDialog(true))} />}{isMockMode && <><NavButton icon={<CreditCard size={19} />} label="แพ็กเกจ" onClick={go(() => setShowSubscriptionPreview(true))} /><NavButton icon={<Building2 size={19} />} label="ข้อมูลตั้งต้น" onClick={go(() => setShowSetupPreview(true))} /></>}</SidebarSection>
-    </nav><div className="sidebar-note"><ShieldCheck size={22} /><strong>เริ่มต้นอย่างเป็นระบบ</strong><p>จัดเตรียมรายการสินค้าของร้าน ก่อนเปิดใช้งานหน้าขาย</p></div><div className="user-card"><span className="avatar">{profile.user.displayName.slice(0, 1)}</span><div><strong>{profile.user.displayName}</strong><small>{profile.role === 'OWNER' ? 'เจ้าของร้าน' : profile.role === 'MANAGER' ? 'ผู้จัดการ' : 'แคชเชียร์'}</small></div><button className="icon-button" aria-label="ออกจากระบบ" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={18} /></button></div></aside>
+      {menuSections.length > 0 ? (
+        menuSections.map(({ section, label, items }) => (
+          <SidebarSection key={section} title={label}>
+            {items.map(item => {
+              if (item.key === 'products') {
+                return (
+                  <div key={item.id} className="nav-item active" aria-current="page">
+                    <MenuIcon icon={item.icon} size={19} />
+                    {item.label}
+                  </div>
+                );
+              }
+              return (
+                <NavButton
+                  key={item.id}
+                  icon={<MenuIcon icon={item.icon} size={19} />}
+                  label={item.label}
+                  onClick={go(() => handleMenuAction(item.key))}
+                />
+              );
+            })}
+          </SidebarSection>
+        ))
+      ) : (
+        <div style={{ padding: '16px 14px', fontSize: '12px', color: '#607a9d' }}>กำลังโหลดเมนู…</div>
+      )}
+      {isMockMode && (
+        <SidebarSection title="เดโม & ข้อมูล">
+          <NavButton icon={<CreditCard size={19} />} label="แพ็กเกจ" onClick={go(() => setShowSubscriptionPreview(true))} />
+          <NavButton icon={<Building2 size={19} />} label="ข้อมูลตั้งต้น" onClick={go(() => setShowSetupPreview(true))} />
+        </SidebarSection>
+      )}
+    </nav><div className="sidebar-note"><ShieldCheck size={22} /><strong>เริ่มต้นอย่างเป็นระบบ</strong><p>จัดเตรียมรายการสินค้าของร้าน ก่อนเปิดใช้งานหน้าขาย</p></div><div className="user-card"><span className="avatar">{profile.user.displayName.slice(0, 1)}</span><div><strong>{profile.user.displayName}</strong><small>{profile.positionName ? profile.positionName : profile.role === 'OWNER' ? 'เจ้าของร้าน' : profile.role === 'MANAGER' ? 'ผู้จัดการ' : 'แคชเชียร์'}</small></div><button className="icon-button" aria-label="ออกจากระบบ" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={18} /></button></div></aside>
     <div className="main-area"><header className="topbar"><span>พื้นที่ทำงาน <span className="divider">/</span> <strong>สินค้า</strong></span><div className="branch-picker"><AppSelect icon={<Building2 size={17} />} aria-label="สาขา" value={branchId} onChange={e => setBranchId(e.target.value)}>{profile.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</AppSelect></div></header>
     <main className="content"><div className="page-heading"><div><span className="eyebrow green">PRODUCT CATALOG</span><h1>สินค้าของร้าน</h1><p className="muted">จัดการรายการสินค้าและตรวจสอบสต็อกแยกตามสาขา</p></div>{profile.role === 'OWNER' && <button className="primary" onClick={() => { setNotice(''); setShowForm(true); }}><Plus size={18} />เพิ่มสินค้า</button>}</div>
       <div className="info-banner"><div className="banner-icon"><Boxes size={26} /></div><div><strong>สินค้าเดียวกัน จัดการได้ทุกสาขา</strong><p>รายการสินค้าใช้ร่วมกันทั้งร้าน ยอดคงเหลือแสดงเฉพาะสาขาที่เลือก</p></div><span className="pill">แยกสต็อกตามสาขา</span></div>
@@ -132,7 +230,7 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
       </section><footer className="page-footer">RubTang POS <span>พื้นที่ทำงานของ {profile.tenant.name}</span></footer>
     </main></div>{showForm && <ProductForm product={editProduct} close={() => { setShowForm(false); setEditProduct(undefined); }} saved={() => void saved()} />}
     {stockProduct && branch && <StockForm product={stockProduct} branch={branch} close={() => { setStockProduct(undefined); void refreshStock(); }} saved={() => { setStockProduct(undefined); setNotice('บันทึกรายการสต็อกเรียบร้อยแล้ว'); void refreshStock(); }} />}
-    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}{showBranchesStaff && <BranchesStaffDialog close={() => setShowBranchesStaff(false)} onBranchCreated={async () => { await queryClient.invalidateQueries({ queryKey: ['profile'] }); }} />}{showSetupPreview && <SetupPreview close={() => setShowSetupPreview(false)} />}{showCheckoutPreview && branch && <CheckoutPreview branch={branch} close={() => setShowCheckoutPreview(false)} onSaleCompleted={() => { void refreshStock(); setNotice('บันทึกการขายและตัดสต็อกเรียบร้อยแล้ว'); }} />}{showShiftDialog && branch && <ShiftDialog branch={branch} close={() => setShowShiftDialog(false)} />}{showTransferDialog && branch && <TransferDialog branch={branch} profile={profile} close={() => setShowTransferDialog(false)} />}{showStockTakeDialog && branch && <StockTakeDialog branch={branch} profile={profile} close={() => { setShowStockTakeDialog(false); void refreshStock(); }} />}{showBarcodeDialog && <BarcodeDialog products={products.data ?? []} storeName={profile.tenant.name} initialSelectedProduct={selectedBarcodeProduct} onClose={() => { setShowBarcodeDialog(false); setSelectedBarcodeProduct(null); }} />}{showSalesHistory && branch && <SalesHistoryDialog branch={branch} role={profile.role} close={() => setShowSalesHistory(false)} />}{showDashboardDialog && branch && <DashboardDialog branch={branch} close={() => setShowDashboardDialog(false)} />}{showReportsPreview && <ReportsPreview close={() => setShowReportsPreview(false)} />}{showReportDialog && branch && <ReportDialog branch={branch} profile={profile} close={() => setShowReportDialog(false)} />}{showTransferPreview && <TransferPreview close={() => setShowTransferPreview(false)} />}{showPurchaseOrderPreview && <PurchaseOrderPreview close={() => setShowPurchaseOrderPreview(false)} />}{showCustomerDialog && <CustomerDialog close={() => setShowCustomerDialog(false)} />}{showPromotionDialog && branch && <PromotionDialog branch={branch} profile={profile} close={() => setShowPromotionDialog(false)} />}{showPromotionPreview && <PromotionPreview close={() => setShowPromotionPreview(false)} />}{showSupplierDialog && <SupplierDialog profile={profile} close={() => setShowSupplierDialog(false)} />}{showPurchaseOrderDialog && branch && <PurchaseOrderDialog branch={branch} profile={profile} close={() => setShowPurchaseOrderDialog(false)} />}{showShiftPreview && <ShiftPreview close={() => setShowShiftPreview(false)} />}{showLineDialog && <LineDialog profile={profile} close={() => setShowLineDialog(false)} />}{showSupplierPreview && <SupplierPreview close={() => setShowSupplierPreview(false)} />}{showAuditDialog && <AuditDialog profile={profile} close={() => setShowAuditDialog(false)} />}{showSubscriptionPreview && <SubscriptionPreview close={() => setShowSubscriptionPreview(false)} />}
+    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}{showBranchesStaff && <BranchesStaffDialog close={() => setShowBranchesStaff(false)} onBranchCreated={async () => { await queryClient.invalidateQueries({ queryKey: ['profile'] }); }} />}{showSetupPreview && <SetupPreview close={() => setShowSetupPreview(false)} />}{showCheckoutPreview && branch && <CheckoutPreview branch={branch} close={() => setShowCheckoutPreview(false)} onSaleCompleted={() => { void refreshStock(); setNotice('บันทึกการขายและตัดสต็อกเรียบร้อยแล้ว'); }} />}{showShiftDialog && branch && <ShiftDialog branch={branch} close={() => setShowShiftDialog(false)} />}{showTransferDialog && branch && <TransferDialog branch={branch} profile={profile} close={() => setShowTransferDialog(false)} />}{showStockTakeDialog && branch && <StockTakeDialog branch={branch} profile={profile} close={() => { setShowStockTakeDialog(false); void refreshStock(); }} />}{showBarcodeDialog && <BarcodeDialog products={products.data ?? []} storeName={profile.tenant.name} initialSelectedProduct={selectedBarcodeProduct} onClose={() => { setShowBarcodeDialog(false); setSelectedBarcodeProduct(null); }} />}{showSalesHistory && branch && <SalesHistoryDialog branch={branch} role={profile.role} close={() => setShowSalesHistory(false)} />}{showDashboardDialog && branch && <DashboardDialog branch={branch} close={() => setShowDashboardDialog(false)} />}{showReportsPreview && <ReportsPreview close={() => setShowReportsPreview(false)} />}{showReportDialog && branch && <ReportDialog branch={branch} profile={profile} close={() => setShowReportDialog(false)} />}{showTransferPreview && <TransferPreview close={() => setShowTransferPreview(false)} />}{showPurchaseOrderPreview && <PurchaseOrderPreview close={() => setShowPurchaseOrderPreview(false)} />}{showCustomerDialog && <CustomerDialog close={() => setShowCustomerDialog(false)} />}{showPromotionDialog && branch && <PromotionDialog branch={branch} profile={profile} close={() => setShowPromotionDialog(false)} />}{showPromotionPreview && <PromotionPreview close={() => setShowPromotionPreview(false)} />}{showSupplierDialog && <SupplierDialog profile={profile} close={() => setShowSupplierDialog(false)} />}{showPurchaseOrderDialog && branch && <PurchaseOrderDialog branch={branch} profile={profile} close={() => setShowPurchaseOrderDialog(false)} />}{showShiftPreview && <ShiftPreview close={() => setShowShiftPreview(false)} />}{showLineDialog && <LineDialog profile={profile} close={() => setShowLineDialog(false)} />}{showSupplierPreview && <SupplierPreview close={() => setShowSupplierPreview(false)} />}{showMasterDataDialog && <MasterDataDialog profile={profile} close={() => setShowMasterDataDialog(false)} />}{showAuditDialog && <AuditDialog profile={profile} close={() => setShowAuditDialog(false)} />}{showSubscriptionPreview && <SubscriptionPreview close={() => setShowSubscriptionPreview(false)} />}
   </div>;
 }
 

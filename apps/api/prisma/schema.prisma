@@ -121,6 +121,7 @@ model Tenant {
   lineOaSettings LineOaSettings?
   lineReceiptLogs LineReceiptLog[]
   saleReturns     SaleReturn[]
+  positions       Position[]
 }
 
 
@@ -189,8 +190,12 @@ model Membership {
   approvedStockTakes     StockTake[]     @relation("StockTakeApprovedBy")
   issuedTaxInvoices      TaxInvoice[]    @relation("TaxInvoiceIssuedBy")
   processedReturns       SaleReturn[]    @relation("ReturnProcessedBy")
+  positionId             String?         @db.Uuid
+  position               Position?       @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
+  @@index([positionId])
 }
 
 
@@ -218,6 +223,7 @@ model Product {
   sku       String
   barcode   String?
   price     Decimal            @db.Decimal(12, 2)
+  reorderPoint Decimal?         @db.Decimal(14, 3)
   active    Boolean            @default(true)
   createdAt DateTime           @default(now())
   tenant    Tenant             @relation(fields: [tenantId], references: [id])
@@ -258,6 +264,38 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, action])
   @@index([tenantId, actorUserId])
+}
+
+model AuditActionDefinition {
+  action      String   @id
+  label       String
+  category    String
+  severity    String   @default("INFO")
+  description String?
+  isSystem    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@map("audit_action_definitions")
+}
+
+model SystemStatusDefinition {
+  id          String   @id @default(uuid())
+  domain      String
+  code        String
+  label       String
+  color       String?
+  bgColor     String?  @map("bg_color")
+  icon        String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isTerminal  Boolean  @default(false) @map("is_terminal")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([domain, code])
+  @@index([domain])
+  @@map("system_status_definitions")
 }
 
 model StockMovement {
@@ -642,9 +680,13 @@ model LineOaSettings {
   autoSendReceipt    Boolean  @default(true)
   welcomeMessage     String?
   qrCodeUrl          String?
-  active             Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  active             Boolean   @default(true)
+  lowStockAlertEnabled Boolean @default(true)
+  lowStockThreshold  Int       @default(5)
+  lowStockTargetUserId String?
+  lowStockLastAlertAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   tenant             Tenant   @relation(fields: [tenantId], references: [id])
 }
 
@@ -715,3 +757,60 @@ model SaleReturnItem {
   @@index([saleItemId])
   @@index([productId])
 }
+
+model NavigationMenu {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique @db.VarChar(64)
+  section         String   @db.VarChar(64)
+  sectionLabel    String   @db.VarChar(128)
+  label           String   @db.VarChar(128)
+  icon            String   @db.VarChar(64)
+  sortOrder       Int      @default(0)
+  allowedRoles    Role[]
+  requiredFeature String?  @db.VarChar(64)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  permissions     PositionMenuPermission[]
+
+  @@index([section, sortOrder])
+  @@index([active])
+}
+
+model Position {
+  id          String                   @id @default(uuid()) @db.Uuid
+  tenantId    String                   @db.Uuid
+  code        String                   @db.VarChar(64)
+  name        String                   @db.VarChar(128)
+  description String?
+  isSystem    Boolean                  @default(false)
+  active      Boolean                  @default(true)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id])
+  memberships Membership[]
+  permissions PositionMenuPermission[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, active])
+}
+
+model PositionMenuPermission {
+  id         String         @id @default(uuid()) @db.Uuid
+  positionId String         @db.Uuid
+  menuId     String         @db.Uuid
+  canView    Boolean        @default(true)
+  canExport  Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  position   Position       @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  menu       NavigationMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, menuId])
+  @@index([positionId])
+  @@index([menuId])
+}
+

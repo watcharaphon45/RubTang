@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { Principal, requireBranch } from './auth';
-import { ForbiddenException, NotFoundException, ConflictException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import { Database } from './database';
 import { parse, createTaxInvoiceSchema, updateBranchTaxSettingsSchema } from './validation';
 
 export function bahtText(input: number | string): string {
@@ -88,8 +89,9 @@ export function calculateVat(netAmount: number, rate = 7) {
   };
 }
 
+@Injectable()
 export class TaxInvoiceService {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(@Inject(Database) private readonly db: Database) {}
 
   async createTaxInvoice(principal: Principal, saleId: string, body: unknown) {
     const data = parse(createTaxInvoiceSchema, body);
