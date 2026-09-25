@@ -26,6 +26,335 @@ const customers: Customer[] = [
   { id: 'demo-cust-2', name: 'คุณวิภา วงศ์สว่าง', phone: '0899887766', points: 45, lifetimePoints: 95, tier: 'BRONZE', note: null, lineUserId: null, lineDisplayName: null, linePictureUrl: null, lineLinkedAt: null, createdAt: new Date().toISOString() },
 ];
 
+const mockTables: Array<{
+  id: string;
+  branchId: string;
+  number: string;
+  name: string;
+  zone: string;
+  capacity: number;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED';
+  active: boolean;
+  sessions: Array<{
+    id: string;
+    sessionToken: string;
+    status: 'OPEN' | 'BILLED' | 'CLOSED' | 'CANCELLED';
+    guestCount: number;
+    note: string | null;
+    openedAt: string;
+    closedAt?: string;
+    orders: Array<{
+      id: string;
+      orderNumber: string;
+      status: 'PENDING' | 'COOKING' | 'SERVED' | 'CANCELLED';
+      note: string | null;
+      createdAt: string;
+      items: Array<{
+        id: string;
+        productId: string;
+        name: string;
+        sku: string;
+        price: number;
+        quantity: number;
+        subtotal: number;
+        note?: string | null;
+        createdAt: string;
+      }>;
+    }>;
+  }>;
+}> = [
+  {
+    id: 'table-1',
+    branchId: 'demo-sukhumvit',
+    number: 'T-01',
+    name: 'โต๊ะ 1 (ริมหน้าต่าง)',
+    zone: 'ห้องแอร์ (Indoor)',
+    capacity: 4,
+    status: 'OCCUPIED',
+    active: true,
+    sessions: [
+      {
+        id: 'sess-demo-01',
+        sessionToken: 'tok_demo_table1_welcome',
+        status: 'OPEN',
+        guestCount: 2,
+        note: 'ขอจานช้อนเพิ่ม',
+        openedAt: new Date(Date.now() - 25 * 60000).toISOString(),
+        orders: [
+          {
+            id: 'ord-demo-01',
+            orderNumber: 'ORD-8901',
+            status: 'COOKING',
+            note: 'ไม่หวาน',
+            createdAt: new Date(Date.now() - 20 * 60000).toISOString(),
+            items: [
+              {
+                id: 'item-01',
+                productId: 'demo-product-2',
+                name: 'กาแฟอเมริกาโน่',
+                sku: 'COFFEE-001',
+                price: 55,
+                quantity: 2,
+                subtotal: 110,
+                note: 'ไม่หวานทั้ง 2 แก้ว',
+                createdAt: new Date(Date.now() - 20 * 60000).toISOString(),
+              },
+            ],
+          },
+          {
+            id: 'ord-demo-02',
+            orderNumber: 'ORD-8902',
+            status: 'PENDING',
+            note: null,
+            createdAt: new Date(Date.now() - 5 * 60000).toISOString(),
+            items: [
+              {
+                id: 'item-02',
+                productId: 'demo-product-1',
+                name: 'น้ำดื่ม 600 มล.',
+                sku: 'DRINK-001',
+                price: 10,
+                quantity: 2,
+                subtotal: 20,
+                note: 'ขอน้ำแข็งเปล่า 2 แก้ว',
+                createdAt: new Date(Date.now() - 5 * 60000).toISOString(),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'table-2',
+    branchId: 'demo-sukhumvit',
+    number: 'T-02',
+    name: 'โต๊ะ 2',
+    zone: 'ห้องแอร์ (Indoor)',
+    capacity: 2,
+    status: 'AVAILABLE',
+    active: true,
+    sessions: [],
+  },
+  {
+    id: 'table-3',
+    branchId: 'demo-sukhumvit',
+    number: 'T-03',
+    name: 'โต๊ะ 3 (โซฟาใหญ่)',
+    zone: 'ห้องแอร์ (Indoor)',
+    capacity: 6,
+    status: 'AVAILABLE',
+    active: true,
+    sessions: [],
+  },
+  {
+    id: 'table-4',
+    branchId: 'demo-sukhumvit',
+    number: 'T-04',
+    name: 'โต๊ะ 4',
+    zone: 'ระเบียงสวน (Outdoor)',
+    capacity: 4,
+    status: 'AVAILABLE',
+    active: true,
+    sessions: [],
+  },
+  {
+    id: 'table-5',
+    branchId: 'demo-sukhumvit',
+    number: 'T-05',
+    name: 'โต๊ะ 5 (มุมสวน)',
+    zone: 'ระเบียงสวน (Outdoor)',
+    capacity: 4,
+    status: 'AVAILABLE',
+    active: true,
+    sessions: [],
+  },
+  {
+    id: 'table-6',
+    branchId: 'demo-sukhumvit',
+    number: 'VIP-01',
+    name: 'ห้องรับรอง VIP',
+    zone: 'ห้อง VIP',
+    capacity: 10,
+    status: 'AVAILABLE',
+    active: true,
+    sessions: [],
+  },
+];
+
+const mockServices: Array<{
+  id: string;
+  tenantId: string;
+  branchId: string;
+  name: string;
+  category: string;
+  description: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  price: number;
+  active: boolean;
+  createdAt: string;
+}> = [
+  {
+    id: 'svc-1',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    name: 'ตัดผมชาย + เซ็ตทรงพรีเมียม (Haircut & Styling)',
+    category: 'ตัดผมและออกแบบทรง',
+    description: 'สระผม ตัดผม ออกแบบทรง และเซ็ตทรงด้วยโพเมดนำเข้า',
+    durationMinutes: 45,
+    bufferMinutes: 10,
+    price: 350,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'svc-2',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    name: 'สระ-ไดร์ วอลลุ่ม (Wash & Blow-dry)',
+    category: 'สระไดร์และทรีทเมนต์',
+    description: 'สระผมด้วยแชมพูออร์แกนิก นวดผ่อนคลายศีรษะ และไดร์ยกโคนเพิ่มวอลลุ่ม',
+    durationMinutes: 30,
+    bufferMinutes: 5,
+    price: 250,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'svc-3',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    name: 'ดัดวอลลุ่มเกาหลี (Korean Perm)',
+    category: 'เคมีและทำสี',
+    description: 'ดัดผมสไตล์เกาหลี ดูแลง่าย ผมมีน้ำหนักไม่ลีบแบน น้ำยาเกรดพรีเมียมถนอมเส้นผม',
+    durationMinutes: 90,
+    bufferMinutes: 15,
+    price: 1500,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'svc-4',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    name: 'ทำสีผมแฟชั่น / ปิดผมขาว (Hair Coloring)',
+    category: 'เคมีและทำสี',
+    description: 'ทำสีผมโทนแฟชั่น หรือปิดผมขาวอย่างเป็นธรรมชาติ พร้อมมาร์กบำรุงผม',
+    durationMinutes: 75,
+    bufferMinutes: 15,
+    price: 1200,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'svc-5',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    name: 'โกนหนวดจัดแต่งเครา + สปาผ้าร้อน (Shaving & Beard Grooming)',
+    category: 'กรูมมิ่งและสปา',
+    description: 'โกนหนวดประคบผ้าร้อน นวดน้ำมันอโรมา และบำรุงผิวหลังโกนหนวด',
+    durationMinutes: 30,
+    bufferMinutes: 10,
+    price: 250,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const mockBookingResources: Array<{
+  id: string;
+  tenantId: string;
+  branchId: string;
+  name: string;
+  type: 'CHAIR' | 'ROOM' | 'STATION' | 'TABLE';
+  description: string;
+  active: boolean;
+}> = [
+  { id: 'res-1', tenantId: 'demo-tenant', branchId: 'demo-sukhumvit', name: 'เก้าอี้ตัดผม 01 (Master Chair)', type: 'CHAIR', description: 'เก้าอี้ตัดผมช่างใหญ่ แถวหน้า', active: true },
+  { id: 'res-2', tenantId: 'demo-tenant', branchId: 'demo-sukhumvit', name: 'เก้าอี้ตัดผม 02', type: 'CHAIR', description: 'เก้าอี้ตัดผมมาตรฐาน โซนกลาง', active: true },
+  { id: 'res-3', tenantId: 'demo-tenant', branchId: 'demo-sukhumvit', name: 'เตียงสระผม 01 (Shampoo Station)', type: 'STATION', description: 'เตียงสระระบบนวดไฟฟ้า', active: true },
+  { id: 'res-4', tenantId: 'demo-tenant', branchId: 'demo-sukhumvit', name: 'ห้องทรีทเมนต์ VIP 01', type: 'ROOM', description: 'ห้องบริการส่วนตัว VIP ทำสีและสปาผม', active: true },
+];
+
+const mockBookingStaff: Array<{
+  id: string;
+  userId: string;
+  displayName: string;
+  position: string;
+  role: string;
+}> = [
+  { id: 'staff-stylist-1', userId: 'user-stylist-1', displayName: 'ช่างเอก (Master Barber)', position: 'Master Barber / ช่างใหญ่', role: 'MANAGER' },
+  { id: 'staff-stylist-2', userId: 'user-stylist-2', displayName: 'ช่างมายด์ (Senior Stylist)', position: 'Senior Hair Stylist', role: 'CASHIER' },
+  { id: 'staff-stylist-3', userId: 'user-stylist-3', displayName: 'ช่างบอย (Color Specialist)', position: 'Color Specialist', role: 'CASHIER' },
+];
+
+const mockAppointments: Array<any> = [
+  {
+    id: 'app-demo-1',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    bookingCode: 'BK-890123',
+    customerName: 'คุณสมชาย ใจดี',
+    customerPhone: '0812345678',
+    customerNote: 'ขอช่างเอก สระผมแบบเบามือ',
+    customerId: 'demo-cust-1',
+    serviceId: 'svc-1',
+    service: mockServices[0],
+    staffMembershipId: 'staff-stylist-1',
+    staff: { id: 'staff-stylist-1', user: { displayName: 'ช่างเอก (Master Barber)' }, position: { name: 'Master Barber / ช่างใหญ่' } },
+    resourceId: 'res-1',
+    resource: mockBookingResources[0],
+    bookingDate: new Date().toISOString().slice(0, 10),
+    startTime: '11:00',
+    endTime: '11:45',
+    status: 'CONFIRMED',
+    createdAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+  },
+  {
+    id: 'app-demo-2',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    bookingCode: 'BK-890124',
+    customerName: 'คุณวิภา วงศ์สว่าง',
+    customerPhone: '0899887766',
+    customerNote: 'ย้อมผมปิดหงอก โทนน้ำตาลธรรมชาติ',
+    customerId: 'demo-cust-2',
+    serviceId: 'svc-4',
+    service: mockServices[3],
+    staffMembershipId: 'staff-stylist-3',
+    staff: { id: 'staff-stylist-3', user: { displayName: 'ช่างบอย (Color Specialist)' }, position: { name: 'Color Specialist' } },
+    resourceId: 'res-4',
+    resource: mockBookingResources[3],
+    bookingDate: new Date().toISOString().slice(0, 10),
+    startTime: '13:00',
+    endTime: '14:15',
+    status: 'IN_SERVICE',
+    createdAt: new Date(Date.now() - 5 * 3600000).toISOString(),
+  },
+  {
+    id: 'app-demo-3',
+    tenantId: 'demo-tenant',
+    branchId: 'demo-sukhumvit',
+    bookingCode: 'BK-890125',
+    customerName: 'คุณกิตติศักดิ์ พูลสวัสดิ์',
+    customerPhone: '0865551234',
+    customerNote: 'ตัดผมเปิดข้างวินเทจ',
+    customerId: null,
+    serviceId: 'svc-1',
+    service: mockServices[0],
+    staffMembershipId: 'staff-stylist-1',
+    staff: { id: 'staff-stylist-1', user: { displayName: 'ช่างเอก (Master Barber)' }, position: { name: 'Master Barber / ช่างใหญ่' } },
+    resourceId: 'res-1',
+    resource: mockBookingResources[0],
+    bookingDate: new Date().toISOString().slice(0, 10),
+    startTime: '15:00',
+    endTime: '15:45',
+    status: 'CONFIRMED',
+    createdAt: new Date(Date.now() - 10 * 3600000).toISOString(),
+  },
+];
+
 const mockPointLedgers: Record<string, PointLedgerItem[]> = {
   'demo-cust-1': [
     {
@@ -1630,6 +1959,553 @@ export async function mockApi<T>(path: string, body?: unknown): Promise<T> {
     return { ok: true } as T;
   }
 
+  // ─── TABLES & DYNAMIC QR ORDERING ──────────────────────────────────────────
+  if (pathname === '/tables' && body === undefined) {
+    return mockTables.map(t => {
+      const activeSession = t.sessions.find(s => s.status === 'OPEN') ?? null;
+      let totalAmount = 0;
+      let totalItems = 0;
+      let pendingOrdersCount = 0;
+
+      if (activeSession) {
+        for (const order of activeSession.orders) {
+          if (order.status === 'PENDING') pendingOrdersCount++;
+          if (order.status !== 'CANCELLED') {
+            for (const item of order.items) {
+              totalItems += Number(item.quantity);
+              totalAmount += Number(item.subtotal);
+            }
+          }
+        }
+      }
+
+      return {
+        id: t.id,
+        number: t.number,
+        name: t.name,
+        zone: t.zone,
+        capacity: t.capacity,
+        status: activeSession ? 'OCCUPIED' : t.status,
+        activeSession: activeSession
+          ? {
+              id: activeSession.id,
+              sessionToken: activeSession.sessionToken,
+              openedAt: activeSession.openedAt,
+              guestCount: activeSession.guestCount,
+              note: activeSession.note,
+              totalAmount,
+              totalItems,
+              pendingOrdersCount,
+              ordersCount: activeSession.orders.length,
+            }
+          : null,
+      };
+    }) as T;
+  }
+
+  if (pathname === '/tables' && body !== undefined) {
+    const input = body as any;
+    if (!input.number || !input.name) throw new ApiError(400, 'กรุณาระบุเลขโต๊ะและชื่อโต๊ะ');
+    const newTable = {
+      id: `table-demo-${Date.now()}`,
+      branchId: input.branchId || 'demo-sukhumvit',
+      number: String(input.number).trim(),
+      name: String(input.name).trim(),
+      zone: input.zone ? String(input.zone).trim() : 'ทั่วไป',
+      capacity: Number(input.capacity) || 4,
+      status: 'AVAILABLE' as const,
+      active: true,
+      sessions: [],
+    };
+    mockTables.push(newTable);
+    return newTable as T;
+  }
+
+  if (pathname.startsWith('/tables/') && pathname.endsWith('/open-session') && body !== undefined) {
+    const tableId = pathname.replace('/tables/', '').replace('/open-session', '');
+    const table = mockTables.find(t => t.id === tableId);
+    if (!table) throw new ApiError(404, 'ไม่พบโต๊ะอาหาร');
+
+    let activeSession = table.sessions.find(s => s.status === 'OPEN');
+    if (!activeSession) {
+      const input = (body || {}) as any;
+      const token = `tok_demo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      activeSession = {
+        id: `sess-demo-${Date.now()}`,
+        sessionToken: token,
+        status: 'OPEN',
+        guestCount: Number(input.guestCount) || 2,
+        note: input.note ? String(input.note) : null,
+        openedAt: new Date().toISOString(),
+        orders: [],
+      };
+      table.sessions.push(activeSession);
+      table.status = 'OCCUPIED';
+    }
+
+    return {
+      session: activeSession,
+      table: { id: table.id, number: table.number, name: table.name, zone: table.zone },
+      orderUrl: `/order?token=${activeSession.sessionToken}`,
+    } as T;
+  }
+
+  if (pathname.startsWith('/tables/sessions/') && pathname.endsWith('/close') && body !== undefined) {
+    const sessionId = pathname.replace('/tables/sessions/', '').replace('/close', '');
+    const input = (body || {}) as any;
+    for (const t of mockTables) {
+      const sess = t.sessions.find(s => s.id === sessionId);
+      if (sess) {
+        sess.status = input.saleId ? 'CLOSED' : 'CANCELLED';
+        sess.closedAt = new Date().toISOString();
+        if (!t.sessions.some(s => s.status === 'OPEN')) {
+          t.status = 'AVAILABLE';
+        }
+        return { ok: true, session: sess } as T;
+      }
+    }
+    throw new ApiError(404, 'ไม่พบรอบการใช้งานโต๊ะ');
+  }
+
+  if (pathname.startsWith('/tables/sessions/') && body === undefined) {
+    const sessionId = pathname.replace('/tables/sessions/', '');
+    for (const t of mockTables) {
+      const sess = t.sessions.find(s => s.id === sessionId);
+      if (sess) {
+        let subtotal = 0;
+        const aggregatedItems: Record<string, any> = {};
+        for (const order of sess.orders) {
+          if (order.status !== 'CANCELLED') {
+            for (const item of order.items) {
+              const qty = Number(item.quantity);
+              const price = Number(item.price);
+              const itemSub = Number(item.subtotal);
+              subtotal += itemSub;
+              if (!aggregatedItems[item.productId]) {
+                aggregatedItems[item.productId] = { ...item, quantity: qty, subtotal: itemSub };
+              } else {
+                aggregatedItems[item.productId].quantity += qty;
+                aggregatedItems[item.productId].subtotal += itemSub;
+              }
+            }
+          }
+        }
+
+        return {
+          session: sess,
+          table: { id: t.id, number: t.number, name: t.name, zone: t.zone, capacity: t.capacity },
+          orders: sess.orders,
+          aggregatedItems: Object.values(aggregatedItems),
+          subtotal,
+        } as T;
+      }
+    }
+    throw new ApiError(404, 'ไม่พบข้อมูลรอบโต๊ะ');
+  }
+
+  if (pathname.startsWith('/tables/orders/') && pathname.endsWith('/status') && body !== undefined) {
+    const orderId = pathname.replace('/tables/orders/', '').replace('/status', '');
+    const input = body as any;
+    for (const t of mockTables) {
+      for (const s of t.sessions) {
+        const order = s.orders.find(o => o.id === orderId);
+        if (order) {
+          order.status = input.status;
+          return { ok: true, order } as T;
+        }
+      }
+    }
+    throw new ApiError(404, 'ไม่พบออเดอร์');
+  }
+
+  if (pathname.startsWith('/public/table-order/session/') && pathname.endsWith('/order') && body !== undefined) {
+    const token = pathname.replace('/public/table-order/session/', '').replace('/order', '');
+    const input = body as any;
+    for (const t of mockTables) {
+      const sess = t.sessions.find(s => s.sessionToken === decodeURIComponent(token));
+      if (sess) {
+        if (sess.status !== 'OPEN') throw new ApiError(400, 'รอบโต๊ะนี้ถูกปิดหรือเช็คบิลแล้ว');
+        const items = (input.items || []).map((i: any) => {
+          const prod = products.find(p => p.id === i.productId);
+          const price = prod ? Number(prod.price) : 50;
+          const qty = Number(i.quantity) || 1;
+          return {
+            id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            productId: i.productId,
+            name: prod?.name || 'รายการอาหาร',
+            sku: prod?.sku || 'SKU',
+            price,
+            quantity: qty,
+            subtotal: price * qty,
+            note: i.note || null,
+            createdAt: new Date().toISOString(),
+          };
+        });
+
+        const newOrder = {
+          id: `ord-${Date.now()}`,
+          orderNumber: `ORD-${Date.now().toString().slice(-4)}`,
+          status: 'PENDING' as const,
+          note: input.note || null,
+          createdAt: new Date().toISOString(),
+          items,
+        };
+        sess.orders.push(newOrder);
+        return { success: true, order: newOrder, message: 'ส่งออเดอร์เข้าครัวเรียบร้อยแล้ว!' } as T;
+      }
+    }
+    throw new ApiError(404, 'ไม่พบโต๊ะอาหาร');
+  }
+
+  if (pathname.startsWith('/public/table-order/session/') && pathname.endsWith('/status') && body === undefined) {
+    const token = pathname.replace('/public/table-order/session/', '').replace('/status', '');
+    for (const t of mockTables) {
+      const sess = t.sessions.find(s => s.sessionToken === decodeURIComponent(token));
+      if (sess) {
+        let runningTotal = 0;
+        for (const o of sess.orders) {
+          if (o.status !== 'CANCELLED') {
+            for (const i of o.items) runningTotal += Number(i.subtotal);
+          }
+        }
+        return { status: sess.status, table: { id: t.id, number: t.number, name: t.name }, orders: sess.orders, runningTotal } as T;
+      }
+    }
+    throw new ApiError(404, 'ไม่พบโต๊ะอาหาร');
+  }
+
+  if (pathname.startsWith('/public/table-order/session/') && body === undefined) {
+    const token = decodeURIComponent(pathname.replace('/public/table-order/session/', ''));
+    for (const t of mockTables) {
+      const sess = t.sessions.find(s => s.sessionToken === token);
+      if (sess) {
+        let runningTotal = 0;
+        let itemCount = 0;
+        for (const o of sess.orders) {
+          if (o.status !== 'CANCELLED') {
+            for (const i of o.items) {
+              runningTotal += Number(i.subtotal);
+              itemCount += Number(i.quantity);
+            }
+          }
+        }
+
+        return {
+          expired: sess.status !== 'OPEN',
+          message: sess.status !== 'OPEN' ? 'รอบโต๊ะนี้ได้ถูกปิดหรือเช็คบิลเรียบร้อยแล้ว' : undefined,
+          session: {
+            id: sess.id,
+            sessionToken: sess.sessionToken,
+            openedAt: sess.openedAt,
+            guestCount: sess.guestCount,
+          },
+          table: { id: t.id, number: t.number, name: t.name, zone: t.zone },
+          branch: { id: 'demo-sukhumvit', name: 'สาขาสุขุมวิท', phone: '02-123-4567' },
+          tenant: { id: 'demo-tenant', name: 'ร้านรับตังค์เดโม' },
+          menu: products.filter(p => p.active).map(p => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            barcode: p.barcode,
+            price: Number(p.price),
+            inStock: Number(p.quantity) > 0,
+            stockQuantity: Number(p.quantity),
+          })),
+          orders: sess.orders,
+          runningTotal,
+          itemCount,
+        } as T;
+      }
+    }
+    throw new ApiError(404, 'ไม่พบโต๊ะอาหารหรือ QR Code หมดอายุ');
+  }
+
+  // ─── Service & Appointment Booking ──────────────────────────────────────────
+  if (pathname === '/services' && body === undefined) {
+    return mockServices.filter(s => s.active) as T;
+  }
+
+  if (pathname === '/services' && body !== undefined) {
+    const input = body as any;
+    if (!input.name || !input.durationMinutes || input.price === undefined) {
+      throw new ApiError(400, 'กรุณากรอกข้อมูลบริการให้ครบถ้วน');
+    }
+    const newSvc = {
+      id: `svc-${Date.now()}`,
+      tenantId: 'demo-tenant',
+      branchId: input.branchId || 'demo-sukhumvit',
+      name: String(input.name).trim(),
+      category: input.category ? String(input.category).trim() : 'บริการทั่วไป',
+      description: input.description ? String(input.description).trim() : '',
+      durationMinutes: Number(input.durationMinutes) || 30,
+      bufferMinutes: Number(input.bufferMinutes) || 0,
+      price: Number(input.price) || 0,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+    mockServices.push(newSvc);
+    return newSvc as T;
+  }
+
+  if (pathname.startsWith('/services/') && body !== undefined) {
+    const svcId = pathname.replace('/services/', '');
+    const svc = mockServices.find(s => s.id === svcId);
+    if (!svc) throw new ApiError(404, 'ไม่พบบริการนี้');
+    const input = body as any;
+    if (input.name !== undefined) svc.name = String(input.name).trim();
+    if (input.category !== undefined) svc.category = String(input.category).trim();
+    if (input.description !== undefined) svc.description = String(input.description).trim();
+    if (input.durationMinutes !== undefined) svc.durationMinutes = Number(input.durationMinutes);
+    if (input.bufferMinutes !== undefined) svc.bufferMinutes = Number(input.bufferMinutes);
+    if (input.price !== undefined) svc.price = Number(input.price);
+    if (input.active !== undefined) svc.active = Boolean(input.active);
+    return svc as T;
+  }
+
+  if (pathname === '/booking/resources' && body === undefined) {
+    return mockBookingResources.filter(r => r.active) as T;
+  }
+
+  if (pathname === '/booking/resources' && body !== undefined) {
+    const input = body as any;
+    if (!input.name) throw new ApiError(400, 'กรุณาระบุชื่อเก้าอี้/ห้องบริการ');
+    const newRes = {
+      id: `res-${Date.now()}`,
+      tenantId: 'demo-tenant',
+      branchId: input.branchId || 'demo-sukhumvit',
+      name: String(input.name).trim(),
+      type: input.type || 'CHAIR',
+      description: input.description ? String(input.description).trim() : '',
+      active: true,
+    };
+    mockBookingResources.push(newRes);
+    return newRes as T;
+  }
+
+  if (pathname === '/booking/staff' && body === undefined) {
+    return mockBookingStaff as T;
+  }
+
+  if (pathname === '/appointments' && body === undefined) {
+    const dateParam = query.get('date');
+    const statusParam = query.get('status');
+    let list = [...mockAppointments];
+    if (dateParam) {
+      list = list.filter(a => a.bookingDate === dateParam);
+    }
+    if (statusParam) {
+      list = list.filter(a => a.status === statusParam);
+    }
+    list.sort((a, b) => {
+      const cmpDate = a.bookingDate.localeCompare(b.bookingDate);
+      if (cmpDate !== 0) return cmpDate;
+      return a.startTime.localeCompare(b.startTime);
+    });
+    return list as T;
+  }
+
+  if (pathname === '/appointments' && body !== undefined) {
+    const input = body as any;
+    if (!input.customerName || !input.customerPhone || !input.serviceId || !input.bookingDate || !input.startTime) {
+      throw new ApiError(400, 'กรุณากรอกข้อมูลการจองให้ครบถ้วน');
+    }
+    const service = mockServices.find(s => s.id === input.serviceId) || mockServices[0];
+    const [startH, startM] = input.startTime.split(':').map(Number);
+    const endMinutes = startH * 60 + startM + (service?.durationMinutes || 30);
+    const endH = Math.floor(endMinutes / 60);
+    const endM = endMinutes % 60;
+    const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+    const staff = mockBookingStaff.find(s => s.id === input.staffMembershipId);
+    const resource = mockBookingResources.find(r => r.id === input.resourceId);
+
+    const newApp = {
+      id: `app-${Date.now()}`,
+      tenantId: 'demo-tenant',
+      branchId: input.branchId || 'demo-sukhumvit',
+      bookingCode: `BK-${Date.now().toString().slice(-6)}`,
+      customerName: String(input.customerName).trim(),
+      customerPhone: String(input.customerPhone).trim(),
+      customerNote: input.customerNote ? String(input.customerNote).trim() : null,
+      customerId: input.customerId || null,
+      serviceId: service.id,
+      service,
+      staffMembershipId: staff?.id || null,
+      staff: staff ? { id: staff.id, user: { displayName: staff.displayName }, position: { name: staff.position } } : null,
+      resourceId: resource?.id || null,
+      resource: resource ? { id: resource.id, name: resource.name, type: resource.type } : null,
+      bookingDate: input.bookingDate,
+      startTime: input.startTime,
+      endTime,
+      status: input.status || 'CONFIRMED',
+      createdAt: new Date().toISOString(),
+    };
+    mockAppointments.push(newApp);
+    return newApp as T;
+  }
+
+  if (pathname.startsWith('/appointments/') && pathname.endsWith('/status') && body !== undefined) {
+    const appId = pathname.replace('/appointments/', '').replace('/status', '');
+    const input = body as any;
+    const app = mockAppointments.find(a => a.id === appId);
+    if (!app) throw new ApiError(404, 'ไม่พบคิวนัดหมายนี้');
+    app.status = input.status;
+    if (input.saleId) app.saleId = input.saleId;
+    return app as T;
+  }
+
+  if (pathname === '/booking/availability' && body === undefined) {
+    const serviceId = query.get('serviceId') || mockServices[0].id;
+    const date = query.get('date') || new Date().toISOString().slice(0, 10);
+    const staffId = query.get('staffId');
+    const service = mockServices.find(s => s.id === serviceId) || mockServices[0];
+
+    const allSlots = ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30'];
+    const busyAppointments = mockAppointments.filter(a => {
+      if (a.bookingDate !== date) return false;
+      if (['CANCELLED', 'NO_SHOW'].includes(a.status)) return false;
+      if (staffId && a.staffMembershipId && a.staffMembershipId !== staffId) return false;
+      return true;
+    });
+
+    const availableSlots = allSlots.filter(slot => {
+      const [sH, sM] = slot.split(':').map(Number);
+      const slotStart = sH * 60 + sM;
+      const slotEnd = slotStart + service.durationMinutes;
+
+      const overlap = busyAppointments.some(a => {
+        const [aStartH, aStartM] = a.startTime.split(':').map(Number);
+        const [aEndH, aEndM] = a.endTime.split(':').map(Number);
+        const appStart = aStartH * 60 + aStartM;
+        const appEnd = aEndH * 60 + aEndM;
+        return slotStart < appEnd && slotEnd > appStart;
+      });
+
+      return !overlap;
+    });
+
+    return {
+      service: { id: service.id, name: service.name, durationMinutes: service.durationMinutes, price: service.price },
+      date,
+      availableSlots,
+    } as T;
+  }
+
+  if (pathname.startsWith('/public/booking/info/') && body === undefined) {
+    return {
+      branch: {
+        id: 'demo-sukhumvit',
+        name: 'สาขาสุขุมวิท (สุขุมวิท 24)',
+        phone: '02-123-4567',
+        address: '123/45 สุขุมวิท 24 แขวงคลองตัน เขตคลองเตย กรุงเทพมหานคร 10110',
+      },
+      tenant: {
+        id: 'demo-tenant',
+        name: 'ร้านรับตังค์ บาร์เบอร์ & ซาลอน (RubTang Barber & Salon)',
+      },
+      services: mockServices.filter(s => s.active).map(s => ({
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        description: s.description,
+        durationMinutes: s.durationMinutes,
+        price: s.price,
+      })),
+      staff: mockBookingStaff.map(s => ({
+        id: s.id,
+        displayName: s.displayName,
+        title: s.position,
+      })),
+    } as T;
+  }
+
+  if (pathname.startsWith('/public/booking/availability/') && body === undefined) {
+    const serviceId = query.get('serviceId') || mockServices[0].id;
+    const date = query.get('date') || new Date().toISOString().slice(0, 10);
+    const staffId = query.get('staffId');
+    const service = mockServices.find(s => s.id === serviceId) || mockServices[0];
+
+    const allSlots = ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30'];
+    const busyAppointments = mockAppointments.filter(a => {
+      if (a.bookingDate !== date) return false;
+      if (['CANCELLED', 'NO_SHOW'].includes(a.status)) return false;
+      if (staffId && a.staffMembershipId && a.staffMembershipId !== staffId) return false;
+      return true;
+    });
+
+    const availableSlots = allSlots.filter(slot => {
+      const [sH, sM] = slot.split(':').map(Number);
+      const slotStart = sH * 60 + sM;
+      const slotEnd = slotStart + service.durationMinutes;
+
+      const overlap = busyAppointments.some(a => {
+        const [aStartH, aStartM] = a.startTime.split(':').map(Number);
+        const [aEndH, aEndM] = a.endTime.split(':').map(Number);
+        const appStart = aStartH * 60 + aStartM;
+        const appEnd = aEndH * 60 + aEndM;
+        return slotStart < appEnd && slotEnd > appStart;
+      });
+
+      return !overlap;
+    });
+
+    return {
+      service: { id: service.id, name: service.name, durationMinutes: service.durationMinutes, price: service.price },
+      date,
+      availableSlots,
+    } as T;
+  }
+
+  if (pathname.startsWith('/public/booking/submit/') && body !== undefined) {
+    const input = body as any;
+    if (!input.customerName || !input.customerPhone || !input.serviceId || !input.bookingDate || !input.startTime) {
+      throw new ApiError(400, 'กรุณากรอกข้อมูลการจองให้ครบถ้วน');
+    }
+    const service = mockServices.find(s => s.id === input.serviceId) || mockServices[0];
+    const [startH, startM] = input.startTime.split(':').map(Number);
+    const endMinutes = startH * 60 + startM + (service?.durationMinutes || 30);
+    const endH = Math.floor(endMinutes / 60);
+    const endM = endMinutes % 60;
+    const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+    const staff = mockBookingStaff.find(s => s.id === input.staffMembershipId);
+
+    const bookingCode = `BK-${Date.now().toString().slice(-6)}`;
+    const newApp = {
+      id: `app-${Date.now()}`,
+      tenantId: 'demo-tenant',
+      branchId: 'demo-sukhumvit',
+      bookingCode,
+      customerName: String(input.customerName).trim(),
+      customerPhone: String(input.customerPhone).trim(),
+      customerNote: input.customerNote ? String(input.customerNote).trim() : null,
+      customerId: null,
+      serviceId: service.id,
+      service,
+      staffMembershipId: staff?.id || null,
+      staff: staff ? { id: staff.id, user: { displayName: staff.displayName }, position: { name: staff.position } } : null,
+      resourceId: 'res-1',
+      resource: mockBookingResources[0],
+      bookingDate: input.bookingDate,
+      startTime: input.startTime,
+      endTime,
+      status: 'CONFIRMED',
+      createdAt: new Date().toISOString(),
+    };
+    mockAppointments.unshift(newApp);
+    return {
+      success: true,
+      bookingCode,
+      appointment: newApp,
+      message: 'จองคิวนัดหมายสำเร็จ! กรุณามาถึงก่อนเวลา 5-10 นาทีครับ',
+    } as T;
+  }
+
+  if (pathname.startsWith('/public/booking/status/') && body === undefined) {
+    const code = decodeURIComponent(pathname.replace('/public/booking/status/', ''));
+    const app = mockAppointments.find(a => a.bookingCode === code);
+    if (!app) throw new ApiError(404, 'ไม่พบข้อมูลการจองนี้');
+    return app as T;
+  }
+
   // LINE OFFICIAL ACCOUNT & E-RECEIPT
   if (pathname === '/line/settings' && body === undefined) {
     return mockLineSettings as T;
@@ -2551,6 +3427,8 @@ const mockSystemStatuses: SystemStatusDefinition[] = [
 const mockNavigationMenus: NavigationMenuItem[] = [
   { id: 'menu-1', key: 'dashboard', section: 'MAIN', sectionLabel: 'หน้าหลัก', label: 'ภาพรวม (Dashboard)', icon: 'BarChart3', sortOrder: 10, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
   { id: 'menu-2', key: 'pos', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'หน้าขาย (POS)', icon: 'ShoppingCart', sortOrder: 20, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-18', key: 'tables', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'โต๊ะ & สั่งอาหาร QR', icon: 'QrCode', sortOrder: 25, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
+  { id: 'menu-19', key: 'appointments', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'คิวนัดหมาย & จองบริการ', icon: 'CalendarDays', sortOrder: 26, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
   { id: 'menu-3', key: 'shifts', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'กะเงินสด', icon: 'CircleDollarSign', sortOrder: 30, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
   { id: 'menu-4', key: 'sales_history', section: 'SALES', sectionLabel: 'ขายหน้าร้าน', label: 'ประวัติการขาย', icon: 'FileText', sortOrder: 40, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
   { id: 'menu-5', key: 'customers', section: 'MARKETING', sectionLabel: 'ลูกค้าและการตลาด', label: 'ลูกค้าและสมาชิก', icon: 'UserRound', sortOrder: 50, allowedRoles: ['OWNER', 'MANAGER', 'CASHIER'], active: true },
@@ -2589,8 +3467,8 @@ const mockPositionPermissions: Record<string, Record<string, { canView: boolean;
 for (const m of mockNavigationMenus) {
   mockPositionPermissions['pos-1'][m.id] = { canView: true, canExport: true };
   mockPositionPermissions['pos-2'][m.id] = { canView: m.key !== 'branches_staff', canExport: true };
-  mockPositionPermissions['pos-3'][m.id] = { canView: ['dashboard', 'pos', 'shifts', 'sales_history', 'customers', 'promotions', 'products', 'reports'].includes(m.key), canExport: true };
-  mockPositionPermissions['pos-4'][m.id] = { canView: ['pos', 'shifts', 'sales_history', 'customers', 'products'].includes(m.key), canExport: false };
+  mockPositionPermissions['pos-3'][m.id] = { canView: ['dashboard', 'pos', 'tables', 'appointments', 'shifts', 'sales_history', 'customers', 'promotions', 'products', 'reports'].includes(m.key), canExport: true };
+  mockPositionPermissions['pos-4'][m.id] = { canView: ['pos', 'tables', 'appointments', 'shifts', 'sales_history', 'customers', 'products'].includes(m.key), canExport: false };
   mockPositionPermissions['pos-5'][m.id] = { canView: ['dashboard', 'products', 'transfers', 'stock_take', 'barcode', 'suppliers', 'procurement'].includes(m.key), canExport: false };
   mockPositionPermissions['pos-6'][m.id] = { canView: ['dashboard', 'sales_history', 'shifts', 'reports', 'procurement'].includes(m.key), canExport: true };
 }

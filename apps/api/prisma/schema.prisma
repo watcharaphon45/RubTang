@@ -122,6 +122,11 @@ model Tenant {
   lineReceiptLogs LineReceiptLog[]
   saleReturns     SaleReturn[]
   positions       Position[]
+  diningTables    DiningTable[]
+  tableSessions   TableSession[]
+  services        ServiceCatalog[]
+  bookingResources BookingResource[]
+  bookingAppointments BookingAppointment[]
 }
 
 
@@ -154,6 +159,11 @@ model Branch {
   promptPayName        String?
   promptPayBank        String?
   taxInvoices          TaxInvoice[]
+  diningTables         DiningTable[]
+  tableSessions        TableSession[]
+  services             ServiceCatalog[]
+  bookingResources     BookingResource[]
+  bookingAppointments  BookingAppointment[]
   @@unique([tenantId, id])
   @@unique([tenantId, name])
 }
@@ -192,6 +202,7 @@ model Membership {
   processedReturns       SaleReturn[]    @relation("ReturnProcessedBy")
   positionId             String?         @db.Uuid
   position               Position?       @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  assignedAppointments   BookingAppointment[] @relation("StylistAppointment")
 
   @@unique([tenantId, userId])
   @@unique([tenantId, id])
@@ -234,6 +245,7 @@ model Product {
   poItems       PurchaseOrderItem[]
   stockTakeItems StockTakeItem[]
   saleReturnItems SaleReturnItem[]
+  tableOrderItems TableOrderItem[]
   @@unique([tenantId, id])
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -350,6 +362,8 @@ model Sale {
   taxInvoices    TaxInvoice[]
   lineReceiptLogs LineReceiptLog[]
   saleReturns    SaleReturn[]
+  tableSessions  TableSession[]
+  bookingAppointments BookingAppointment[]
   @@unique([tenantId, receiptNumber])
   @@index([tenantId, branchId, createdAt])
   @@index([tenantId, customerId])
@@ -394,6 +408,7 @@ model Customer {
   sales          Sale[]
   pointLedgers   PointLedger[]
   lineReceiptLogs LineReceiptLog[]
+  bookingAppointments BookingAppointment[]
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
   @@unique([tenantId, lineUserId])
@@ -813,4 +828,196 @@ model PositionMenuPermission {
   @@index([positionId])
   @@index([menuId])
 }
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+}
+
+enum TableSessionStatus {
+  OPEN
+  BILLED
+  CLOSED
+  CANCELLED
+}
+
+enum TableOrderStatus {
+  PENDING
+  COOKING
+  SERVED
+  CANCELLED
+}
+
+model DiningTable {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @db.Uuid
+  branchId  String        @db.Uuid
+  number    String        @db.VarChar(50)
+  name      String        @db.VarChar(100)
+  zone      String        @default("General") @db.VarChar(50)
+  capacity  Int           @default(4)
+  status    TableStatus   @default(AVAILABLE)
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now()) @updatedAt
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  branch    Branch        @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  sessions  TableSession[]
+
+  @@unique([tenantId, branchId, number])
+  @@index([tenantId, branchId, active])
+}
+
+model TableSession {
+  id           String             @id @default(uuid()) @db.Uuid
+  tenantId     String             @db.Uuid
+  branchId     String             @db.Uuid
+  tableId      String             @db.Uuid
+  sessionToken String             @unique @db.VarChar(64)
+  status       TableSessionStatus @default(OPEN)
+  guestCount   Int                @default(1)
+  note         String?
+  saleId       String?            @db.Uuid
+  openedAt     DateTime           @default(now())
+  closedAt     DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @default(now()) @updatedAt
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  branch       Branch             @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  table        DiningTable        @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  sale         Sale?              @relation(fields: [saleId], references: [id])
+  orders       TableOrder[]
+
+  @@index([tenantId, branchId, status])
+  @@index([sessionToken])
+}
+
+model TableOrder {
+  id             String           @id @default(uuid()) @db.Uuid
+  tableSessionId String           @db.Uuid
+  orderNumber    String           @db.VarChar(50)
+  status         TableOrderStatus @default(PENDING)
+  note           String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @default(now()) @updatedAt
+
+  session        TableSession     @relation(fields: [tableSessionId], references: [id], onDelete: Cascade)
+  items          TableOrderItem[]
+
+  @@index([tableSessionId, status])
+}
+
+model TableOrderItem {
+  id           String      @id @default(uuid()) @db.Uuid
+  tableOrderId String      @db.Uuid
+  productId    String      @db.Uuid
+  name         String      @db.VarChar(150)
+  sku          String      @db.VarChar(64)
+  price        Decimal     @db.Decimal(12, 2)
+  quantity     Decimal     @db.Decimal(14, 3)
+  subtotal     Decimal     @db.Decimal(12, 2)
+  note         String?
+  createdAt    DateTime    @default(now())
+
+  order        TableOrder  @relation(fields: [tableOrderId], references: [id], onDelete: Cascade)
+  product      Product     @relation(fields: [productId], references: [id])
+
+  @@index([tableOrderId])
+  @@index([productId])
+}
+
+enum BookingAppointmentStatus {
+  PENDING
+  CONFIRMED
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingResourceType {
+  CHAIR
+  ROOM
+  STATION
+  TABLE
+}
+
+model ServiceCatalog {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @db.Uuid
+  branchId        String               @db.Uuid
+  name            String               @db.VarChar(150)
+  category        String               @default("General") @db.VarChar(64)
+  description     String?
+  durationMinutes Int                  @default(60)
+  bufferMinutes   Int                  @default(10)
+  price           Decimal              @db.Decimal(12, 2)
+  active          Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @default(now()) @updatedAt
+
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  branch          Branch               @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  appointments    BookingAppointment[]
+
+  @@unique([tenantId, branchId, name])
+  @@index([tenantId, branchId, active])
+}
+
+model BookingResource {
+  id           String               @id @default(uuid()) @db.Uuid
+  tenantId     String               @db.Uuid
+  branchId     String               @db.Uuid
+  name         String               @db.VarChar(100)
+  type         BookingResourceType  @default(CHAIR)
+  description  String?
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @default(now()) @updatedAt
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  branch       Branch               @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  appointments BookingAppointment[]
+
+  @@unique([tenantId, branchId, name])
+  @@index([tenantId, branchId, active])
+}
+
+model BookingAppointment {
+  id                String                   @id @default(uuid()) @db.Uuid
+  tenantId          String                   @db.Uuid
+  branchId          String                   @db.Uuid
+  bookingCode       String                   @unique @db.VarChar(64)
+  customerId        String?                  @db.Uuid
+  customerName      String                   @db.VarChar(150)
+  customerPhone     String                   @db.VarChar(50)
+  customerNote      String?
+  serviceId         String                   @db.Uuid
+  staffMembershipId String?                  @db.Uuid
+  resourceId        String?                  @db.Uuid
+  bookingDate       DateTime                 @db.Date
+  startTime         String                   @db.VarChar(10)
+  endTime           String                   @db.VarChar(10)
+  status            BookingAppointmentStatus @default(CONFIRMED)
+  saleId            String?                  @db.Uuid
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @default(now()) @updatedAt
+
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id])
+  branch            Branch                   @relation(fields: [tenantId, branchId], references: [tenantId, id])
+  customer          Customer?                @relation(fields: [tenantId, customerId], references: [tenantId, id])
+  service           ServiceCatalog           @relation(fields: [serviceId], references: [id])
+  staff             Membership?              @relation("StylistAppointment", fields: [tenantId, staffMembershipId], references: [tenantId, id])
+  resource          BookingResource?         @relation(fields: [resourceId], references: [id])
+  sale              Sale?                    @relation(fields: [saleId], references: [id])
+
+  @@index([tenantId, branchId, bookingDate, status])
+  @@index([staffMembershipId, bookingDate])
+  @@index([bookingCode])
+}
+
+
 

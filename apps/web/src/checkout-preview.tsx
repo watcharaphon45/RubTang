@@ -19,7 +19,7 @@ import {
   X,
   QrCode,
 } from 'lucide-react';
-import { api, Branch, CheckoutPayload, Customer, Product, PromotionData, SaleReceipt, ValidatePromotionResult } from './api';
+import { api, Branch, CheckoutPayload, closeTableSession, Customer, Product, PromotionData, SaleReceipt, updateAppointmentStatus, ValidatePromotionResult } from './api';
 import { AppSelect } from './components/app-select';
 import { TaxInvoiceDialog } from './tax-invoice-dialog';
 import { PromptPayModal } from './promptpay-modal';
@@ -39,15 +39,35 @@ export function CheckoutPreview({
   branch,
   close,
   onSaleCompleted,
+  initialCart,
+  tableSessionId,
+  tableNumber,
+  appointmentId,
+  appointmentCode,
 }: {
   branch: Branch;
   close: () => void;
   onSaleCompleted?: () => void;
+  initialCart?: Array<{ productId: string; name: string; sku: string; price: number; quantity: number }>;
+  tableSessionId?: string;
+  tableNumber?: string;
+  appointmentId?: string;
+  appointmentCode?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    if (!initialCart || initialCart.length === 0) return [];
+    return initialCart.map(item => ({
+      productId: item.productId,
+      name: item.name,
+      sku: item.sku,
+      price: item.price,
+      quantity: item.quantity,
+      stock: 9999,
+    }));
+  });
   const [discount, setDiscount] = useState('0');
   const [received, setReceived] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
@@ -150,11 +170,27 @@ export function CheckoutPreview({
     mutationFn: (payload: CheckoutPayload) => api<SaleReceipt>('/checkout', payload),
     onSuccess: async receipt => {
       setCompletedReceipt(receipt);
+      if (tableSessionId) {
+        try {
+          await closeTableSession(tableSessionId, receipt.id);
+        } catch (err) {
+          console.error('Error closing table session:', err);
+        }
+      }
+      if (appointmentId) {
+        try {
+          await updateAppointmentStatus(appointmentId, 'COMPLETED', receipt.id);
+        } catch (err) {
+          console.error('Error completing appointment:', err);
+        }
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['products'] }),
         queryClient.invalidateQueries({ queryKey: ['movements'] }),
         queryClient.invalidateQueries({ queryKey: ['sales'] }),
         queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['dining-tables'] }),
+        queryClient.invalidateQueries({ queryKey: ['booking-appointments'] }),
       ]);
       if (onSaleCompleted) onSaleCompleted();
     },
@@ -256,7 +292,19 @@ export function CheckoutPreview({
       <div className="section-heading">
         <div>
           <span className="eyebrow green">REAL-TIME POS · {branch.name}</span>
-          <h2 id="checkout-preview-title">หน้าขายสินค้าหน้าร้าน</h2>
+          <h2 id="checkout-preview-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>หน้าขายสินค้าหน้าร้าน</span>
+            {tableNumber && (
+              <span className="pill" style={{ background: '#eaf4ff', color: '#0753bd', fontSize: '13px' }}>
+                โต๊ะ: {tableNumber}
+              </span>
+            )}
+            {appointmentCode && (
+              <span className="pill" style={{ background: '#e0f2fe', color: '#0284c7', fontSize: '13px' }}>
+                คิวนัด: {appointmentCode}
+              </span>
+            )}
+          </h2>
         </div>
         <button
           type="button"

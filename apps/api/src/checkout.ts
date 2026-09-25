@@ -45,11 +45,49 @@ export class CheckoutService {
       }[] = [];
 
       for (const item of input.items) {
-        const product = await tx.product.findFirst({
+        let product = await tx.product.findFirst({
           where: { id: item.productId, tenantId: principal.tenantId },
         });
-        if (!product) throw new NotFoundException(`ไม่พบสินค้ารหัส ${item.productId}`);
-        if (!product.active) throw new ConflictException(`สินค้า "${product.name}" ปิดการใช้งานอยู่`);
+
+        if (!product) {
+          // Check if this item is from ServiceCatalog (e.g. hair cut, salon service from appointments)
+          const service = await tx.serviceCatalog.findFirst({
+            where: { id: item.productId, tenantId: principal.tenantId },
+          });
+          if (service) {
+            product = await tx.product.upsert({
+              where: { id: service.id },
+              create: {
+                id: service.id,
+                tenantId: principal.tenantId,
+                name: service.name,
+                sku: `SVC-${service.id.slice(0, 8).toUpperCase()}`,
+                price: service.price,
+                cost: new Prisma.Decimal(0),
+                active: service.active,
+              },
+              update: {
+                name: service.name,
+                price: service.price,
+                active: service.active,
+              },
+            });
+
+            const svcKey = {
+              tenantId: principal.tenantId,
+              branchId: input.branchId,
+              productId: service.id,
+            };
+            await tx.inventoryBalance.upsert({
+              where: { tenantId_branchId_productId: svcKey },
+              create: { ...svcKey, quantity: new Prisma.Decimal(99999) },
+              update: { quantity: new Prisma.Decimal(99999) },
+            });
+          }
+        }
+
+        if (!product) throw new NotFoundException(`ไม่พบสินค้าหรือบริการรหัส ${item.productId}`);
+        if (!product.active) throw new ConflictException(`สินค้าหรือบริการ "${product.name}" ปิดการใช้งานอยู่`);
 
         const key = {
           tenantId: principal.tenantId,

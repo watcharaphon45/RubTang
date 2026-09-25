@@ -1202,4 +1202,355 @@ export function updateStaffPosition(staffId: string, positionId: string | null) 
   return api<any>(`/staff/${staffId}/position`, { positionId }, { method: 'PUT' });
 }
 
+// ─── Table Management & Dynamic QR Ordering ──────────────────────────────────
+
+export interface DiningTable {
+  id: string;
+  number: string;
+  name: string;
+  zone: string;
+  capacity: number;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED';
+  activeSession: {
+    id: string;
+    sessionToken: string;
+    openedAt: string;
+    guestCount: number;
+    note?: string | null;
+    totalAmount: number;
+    totalItems: number;
+    pendingOrdersCount: number;
+    ordersCount: number;
+  } | null;
+}
+
+export interface TableOrderItem {
+  id: string;
+  productId: string;
+  name: string;
+  sku: string;
+  price: number | string;
+  quantity: number | string;
+  subtotal: number | string;
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface TableOrder {
+  id: string;
+  orderNumber: string;
+  status: 'PENDING' | 'COOKING' | 'SERVED' | 'CANCELLED';
+  note?: string | null;
+  createdAt: string;
+  items: TableOrderItem[];
+}
+
+export interface TableSessionDetail {
+  session: {
+    id: string;
+    sessionToken: string;
+    status: 'OPEN' | 'BILLED' | 'CLOSED' | 'CANCELLED';
+    guestCount: number;
+    note?: string | null;
+    openedAt: string;
+    closedAt?: string | null;
+  };
+  table: {
+    id: string;
+    number: string;
+    name: string;
+    zone: string;
+    capacity: number;
+  };
+  orders: TableOrder[];
+  aggregatedItems: {
+    productId: string;
+    name: string;
+    sku: string;
+    price: number;
+    quantity: number;
+    subtotal: number;
+  }[];
+  subtotal: number;
+}
+
+export interface PublicTableSession {
+  expired: boolean;
+  message?: string;
+  session?: {
+    id: string;
+    sessionToken: string;
+    openedAt: string;
+    guestCount: number;
+  };
+  table: {
+    id: string;
+    number: string;
+    name: string;
+    zone: string;
+  };
+  branch: {
+    id: string;
+    name: string;
+    phone?: string | null;
+  };
+  tenant: {
+    id: string;
+    name: string;
+  };
+  menu: {
+    id: string;
+    name: string;
+    sku: string;
+    barcode?: string | null;
+    price: number;
+    inStock: boolean;
+    stockQuantity: number;
+  }[];
+  orders: TableOrder[];
+  runningTotal: number;
+  itemCount: number;
+}
+
+export function getTables(branchId?: string) {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  return api<DiningTable[]>(`/tables${query}`);
+}
+
+export function createTable(input: { branchId: string; number: string; name: string; zone?: string; capacity?: number }) {
+  return api<DiningTable>('/tables', input);
+}
+
+export function updateTable(id: string, input: { number?: string; name?: string; zone?: string; capacity?: number; active?: boolean }) {
+  return api<DiningTable>(`/tables/${id}`, input);
+}
+
+export function openTableSession(tableId: string, input: { guestCount?: number; note?: string }) {
+  return api<{ session: any; table: any; orderUrl: string }>(`/tables/${tableId}/open-session`, input);
+}
+
+export function closeTableSession(sessionId: string, saleId?: string) {
+  return api<any>(`/tables/sessions/${sessionId}/close`, { saleId });
+}
+
+export function getTableSessionDetails(sessionId: string) {
+  return api<TableSessionDetail>(`/tables/sessions/${sessionId}`);
+}
+
+export function updateTableOrderStatus(orderId: string, status: 'PENDING' | 'COOKING' | 'SERVED' | 'CANCELLED') {
+  return api<any>(`/tables/orders/${orderId}/status`, { status });
+}
+
+export function getPublicTableSession(token: string) {
+  return api<PublicTableSession>(`/public/table-order/session/${encodeURIComponent(token)}`);
+}
+
+export function submitPublicTableOrder(token: string, input: { items: { productId: string; quantity: number; note?: string }[]; note?: string }) {
+  return api<{ success: boolean; order: TableOrder; message: string }>(`/public/table-order/session/${encodeURIComponent(token)}/order`, input);
+}
+
+export function getPublicTableOrderStatus(token: string) {
+  return api<{ status: string; table: any; orders: TableOrder[]; runningTotal: number }>(`/public/table-order/session/${encodeURIComponent(token)}/status`);
+}
+
+// ─── Service & Appointment Booking ──────────────────────────────────────────
+
+export type BookingAppointmentStatus = 'PENDING' | 'CONFIRMED' | 'IN_SERVICE' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+export type BookingResourceType = 'CHAIR' | 'ROOM' | 'STATION' | 'TABLE';
+
+export type ServiceCatalogItem = {
+  id: string;
+  tenantId: string;
+  branchId: string;
+  name: string;
+  category?: string | null;
+  description?: string | null;
+  durationMinutes: number;
+  bufferMinutes: number;
+  price: string | number;
+  active: boolean;
+  createdAt: string;
+};
+
+export type BookingResourceItem = {
+  id: string;
+  tenantId: string;
+  branchId: string;
+  name: string;
+  type: BookingResourceType;
+  description?: string | null;
+  active: boolean;
+};
+
+export type BookingStaffItem = {
+  id: string;
+  userId: string;
+  displayName: string;
+  position?: string | null;
+  role: string;
+};
+
+export type BookingAppointmentItem = {
+  id: string;
+  tenantId: string;
+  branchId: string;
+  bookingCode: string;
+  customerName: string;
+  customerPhone: string;
+  customerNote?: string | null;
+  customerId?: string | null;
+  serviceId: string;
+  service: {
+    id: string;
+    name: string;
+    category?: string | null;
+    durationMinutes: number;
+    price: string | number;
+  };
+  staffMembershipId?: string | null;
+  staff?: {
+    id: string;
+    user: { displayName: string };
+    position?: { name: string } | null;
+  } | null;
+  resourceId?: string | null;
+  resource?: {
+    id: string;
+    name: string;
+    type: string;
+  } | null;
+  bookingDate: string;
+  startTime: string;
+  endTime: string;
+  status: BookingAppointmentStatus;
+  saleId?: string | null;
+  createdAt: string;
+};
+
+export type BookingAvailability = {
+  service: { id: string; name: string; durationMinutes: number; price: number };
+  date: string;
+  availableSlots: string[];
+};
+
+export type PublicBookingInfo = {
+  branch: { id: string; name: string; phone?: string | null; address?: string | null };
+  tenant: { id: string; name: string };
+  services: { id: string; name: string; category?: string | null; description?: string | null; durationMinutes: number; price: number }[];
+  staff: { id: string; displayName: string; title: string }[];
+};
+
+export function getServices(branchId?: string) {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  return api<ServiceCatalogItem[]>(`/services${query}`);
+}
+
+export function createService(input: {
+  branchId: string;
+  name: string;
+  category?: string;
+  description?: string;
+  durationMinutes: number;
+  bufferMinutes?: number;
+  price: number;
+}) {
+  return api<ServiceCatalogItem>('/services', input);
+}
+
+export function updateService(id: string, input: Partial<{
+  name: string;
+  category: string;
+  description: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  price: number;
+  active: boolean;
+}>) {
+  return api<ServiceCatalogItem>(`/services/${id}`, input);
+}
+
+export function getBookingResources(branchId?: string) {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  return api<BookingResourceItem[]>(`/booking/resources${query}`);
+}
+
+export function createBookingResource(input: {
+  branchId: string;
+  name: string;
+  type?: BookingResourceType;
+  description?: string;
+}) {
+  return api<BookingResourceItem>('/booking/resources', input);
+}
+
+export function getBookingStaff(branchId?: string) {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : '';
+  return api<BookingStaffItem[]>(`/booking/staff${query}`);
+}
+
+export function getAppointments(params?: { branchId?: string; date?: string; status?: string }) {
+  const search = new URLSearchParams();
+  if (params?.branchId) search.set('branchId', params.branchId);
+  if (params?.date) search.set('date', params.date);
+  if (params?.status) search.set('status', params.status);
+  const q = search.toString();
+  return api<BookingAppointmentItem[]>(`/appointments${q ? `?${q}` : ''}`);
+}
+
+export function createAppointment(input: {
+  branchId: string;
+  customerName: string;
+  customerPhone: string;
+  customerNote?: string;
+  customerId?: string;
+  serviceId: string;
+  staffMembershipId?: string;
+  resourceId?: string;
+  bookingDate: string;
+  startTime: string;
+  status?: 'PENDING' | 'CONFIRMED';
+}) {
+  return api<BookingAppointmentItem>('/appointments', input);
+}
+
+export function updateAppointmentStatus(id: string, status: BookingAppointmentStatus, saleId?: string) {
+  return api<BookingAppointmentItem>(`/appointments/${id}/status`, { status, saleId });
+}
+
+export function getBookingAvailability(branchId: string, serviceId: string, date: string, staffId?: string) {
+  const search = new URLSearchParams({ branchId, serviceId, date });
+  if (staffId) search.set('staffId', staffId);
+  return api<BookingAvailability>(`/booking/availability?${search.toString()}`);
+}
+
+export function getPublicBookingInfo(branchId: string) {
+  return api<PublicBookingInfo>(`/public/booking/info/${encodeURIComponent(branchId)}`);
+}
+
+export function getPublicBookingAvailability(branchId: string, serviceId: string, date: string, staffId?: string) {
+  const search = new URLSearchParams({ serviceId, date });
+  if (staffId) search.set('staffId', staffId);
+  return api<BookingAvailability>(`/public/booking/availability/${encodeURIComponent(branchId)}?${search.toString()}`);
+}
+
+export function submitPublicBooking(branchId: string, input: {
+  customerName: string;
+  customerPhone: string;
+  customerNote?: string;
+  serviceId: string;
+  staffMembershipId?: string;
+  bookingDate: string;
+  startTime: string;
+}) {
+  return api<{ success: boolean; bookingCode: string; appointment: BookingAppointmentItem; message: string }>(
+    `/public/booking/submit/${encodeURIComponent(branchId)}`,
+    input
+  );
+}
+
+export function getPublicBookingStatus(code: string) {
+  return api<BookingAppointmentItem>(`/public/booking/status/${encodeURIComponent(code)}`);
+}
+
+
 

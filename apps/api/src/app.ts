@@ -25,6 +25,8 @@ import { RefundService } from './refund';
 import { StatusService } from './status';
 import { MenuService } from './menu';
 import { PositionService } from './position';
+import { TableService } from './table';
+import { BookingService } from './booking';
 import { parse, auditQuerySchema, statusQuerySchema, updateLineSettingsSchema, linkCustomerLineSchema, sendLineReceiptSchema, sendLowStockAlertSchema, lineReceiptLogsQuerySchema, createSaleReturnSchema, returnsQuerySchema } from './validation';
 
 @Controller()
@@ -53,6 +55,8 @@ class AppController {
     @Inject(StatusService) private readonly status: StatusService,
     @Inject(MenuService) private readonly menu: MenuService,
     @Inject(PositionService) private readonly positionService: PositionService,
+    @Inject(TableService) private readonly tableService: TableService,
+    @Inject(BookingService) private readonly bookingService: BookingService,
   ) {}
 
   @Get('health') health() { return { status: 'ok', service: 'rubtang-api' }; }
@@ -537,6 +541,154 @@ class AppController {
   updateStaffPosition(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.positionService.updateStaffPosition(req.principal, id, body);
   }
+
+  // ─── Table Management & Ordering Endpoints ──────────────────────────────
+  @Get('tables') @UseGuards(SessionGuard)
+  listTables(@Req() req: AuthRequest, @Query('branchId') branchId?: string) {
+    return this.tableService.listTables(req.principal, branchId);
+  }
+
+  @Post('tables') @UseGuards(SessionGuard)
+  createTable(@Req() req: AuthRequest, @Body() body: unknown) {
+    return this.tableService.createTable(req.principal, body);
+  }
+
+  @Post('tables/:id') @HttpCode(200) @UseGuards(SessionGuard)
+  updateTable(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.tableService.updateTable(req.principal, id, body);
+  }
+
+  @Post('tables/:id/open-session') @HttpCode(200) @UseGuards(SessionGuard)
+  openTableSession(@Req() req: AuthRequest, @Param('id') tableId: string, @Body() body: unknown) {
+    return this.tableService.openSession(req.principal, tableId, body);
+  }
+
+  @Post('tables/sessions/:id/close') @HttpCode(200) @UseGuards(SessionGuard)
+  closeTableSession(@Req() req: AuthRequest, @Param('id') sessionId: string, @Body('saleId') saleId?: string) {
+    return this.tableService.closeSession(req.principal, sessionId, saleId);
+  }
+
+  @Get('tables/sessions/:id') @UseGuards(SessionGuard)
+  getTableSessionDetails(@Req() req: AuthRequest, @Param('id') sessionId: string) {
+    return this.tableService.getSessionDetails(req.principal, sessionId);
+  }
+
+  @Post('tables/orders/:id/status') @HttpCode(200) @UseGuards(SessionGuard)
+  updateTableOrderStatus(
+    @Req() req: AuthRequest,
+    @Param('id') orderId: string,
+    @Body('status') status: 'PENDING' | 'COOKING' | 'SERVED' | 'CANCELLED',
+  ) {
+    return this.tableService.updateOrderStatus(req.principal, orderId, status);
+  }
+
+  // ─── Public Customer Ordering Endpoints (Token-based, No Auth Required) ───
+  @Get('public/table-order/session/:token')
+  getPublicTableSession(@Param('token') token: string) {
+    return this.tableService.getPublicSession(token);
+  }
+
+  @Post('public/table-order/session/:token/order') @HttpCode(200)
+  submitPublicTableOrder(@Param('token') token: string, @Body() body: unknown) {
+    return this.tableService.submitPublicOrder(token, body);
+  }
+
+  @Get('public/table-order/session/:token/status')
+  getPublicTableOrderStatus(@Param('token') token: string) {
+    return this.tableService.getPublicOrderStatus(token);
+  }
+
+  // ─── Service & Appointment Booking Endpoints ──────────────────────────────
+  @Get('services') @UseGuards(SessionGuard)
+  listServices(@Req() req: AuthRequest, @Query('branchId') branchId?: string) {
+    return this.bookingService.listServices(req.principal, branchId);
+  }
+
+  @Post('services') @UseGuards(SessionGuard)
+  createService(@Req() req: AuthRequest, @Body() body: unknown) {
+    return this.bookingService.createService(req.principal, body);
+  }
+
+  @Post('services/:id') @HttpCode(200) @UseGuards(SessionGuard)
+  updateService(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.bookingService.updateService(req.principal, id, body);
+  }
+
+  @Get('booking/resources') @UseGuards(SessionGuard)
+  listBookingResources(@Req() req: AuthRequest, @Query('branchId') branchId?: string) {
+    return this.bookingService.listResources(req.principal, branchId);
+  }
+
+  @Post('booking/resources') @UseGuards(SessionGuard)
+  createBookingResource(@Req() req: AuthRequest, @Body() body: unknown) {
+    return this.bookingService.createResource(req.principal, body);
+  }
+
+  @Get('booking/staff') @UseGuards(SessionGuard)
+  listBookingStaff(@Req() req: AuthRequest, @Query('branchId') branchId?: string) {
+    return this.bookingService.listStaffStylists(req.principal, branchId);
+  }
+
+  @Get('appointments') @UseGuards(SessionGuard)
+  listAppointments(
+    @Req() req: AuthRequest,
+    @Query('branchId') branchId?: string,
+    @Query('date') date?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.bookingService.listAppointments(req.principal, branchId, date, status);
+  }
+
+  @Post('appointments') @UseGuards(SessionGuard)
+  createAppointment(@Req() req: AuthRequest, @Body() body: unknown) {
+    return this.bookingService.createAppointment(req.principal, body);
+  }
+
+  @Post('appointments/:id/status') @HttpCode(200) @UseGuards(SessionGuard)
+  updateAppointmentStatus(
+    @Req() req: AuthRequest,
+    @Param('id') id: string,
+    @Body('status') status: string,
+    @Body('saleId') saleId?: string,
+  ) {
+    return this.bookingService.updateAppointmentStatus(req.principal, id, status, saleId);
+  }
+
+  @Get('booking/availability') @UseGuards(SessionGuard)
+  getBookingAvailability(
+    @Query('branchId') branchId: string,
+    @Query('serviceId') serviceId: string,
+    @Query('date') date: string,
+    @Query('staffId') staffId?: string,
+  ) {
+    return this.bookingService.calculateAvailableSlots(branchId, serviceId, date, staffId);
+  }
+
+  // ─── Public Booking Endpoints (Customer Facing, Unauthenticated) ──────────
+  @Get('public/booking/info/:branchId')
+  getPublicBookingInfo(@Param('branchId') branchId: string) {
+    return this.bookingService.getPublicBookingInfo(branchId);
+  }
+
+  @Get('public/booking/availability/:branchId')
+  getPublicBookingAvailability(
+    @Param('branchId') branchId: string,
+    @Query('serviceId') serviceId: string,
+    @Query('date') date: string,
+    @Query('staffId') staffId?: string,
+  ) {
+    return this.bookingService.calculateAvailableSlots(branchId, serviceId, date, staffId);
+  }
+
+  @Post('public/booking/submit/:branchId') @HttpCode(200)
+  submitPublicBooking(@Param('branchId') branchId: string, @Body() body: unknown) {
+    return this.bookingService.submitPublicBooking(branchId, body);
+  }
+
+  @Get('public/booking/status/:code')
+  getPublicBookingStatus(@Param('code') code: string) {
+    return this.bookingService.getPublicBookingStatus(code);
+  }
 }
 
 @Module({
@@ -567,9 +719,13 @@ class AppController {
     StatusService,
     MenuService,
     PositionService,
+    TableService,
+    BookingService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}
+
+
 
 

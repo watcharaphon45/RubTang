@@ -1,11 +1,15 @@
 import React, { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, ArrowRight, BadgePercent, BarChart3, Boxes, Building, Building2, Check, CircleDollarSign, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, FileText, History, LogOut, Menu, MessageCircle, Package, Plus, Search, ShieldCheck, ShoppingCart, SlidersHorizontal, Store, Tag, UserRound, X } from 'lucide-react';
+import { ArrowLeftRight, ArrowRight, BadgePercent, BarChart3, Boxes, Building, Building2, CalendarDays, Check, CircleDollarSign, ClipboardCheck, ClipboardList, CreditCard, FileSpreadsheet, FileText, History, LogOut, Menu, MessageCircle, Package, Plus, QrCode, Search, ShieldCheck, ShoppingCart, SlidersHorizontal, Store, Tag, UserRound, X } from 'lucide-react';
 import { api, ApiError, getNavigationMenus, isMockMode, NavigationMenuItem, Product, Profile } from './api';
 import { HistoryDialog, StockForm } from './inventory';
 import { SetupPreview } from './setup-preview';
 import { CheckoutPreview } from './checkout-preview';
+import { TableDialog } from './table-dialog';
+import { CustomerOrderScreen } from './customer-order-screen';
+import { BookingDialog } from './booking-dialog';
+import { PublicBookingScreen } from './public-booking-screen';
 import { SalesHistoryDialog } from './sales-history-dialog';
 import { DashboardDialog } from './dashboard-dialog';
 import { ReportsPreview } from './reports-preview';
@@ -56,6 +60,9 @@ function MenuIcon({ icon, size = 19 }: { icon: string; size?: number }) {
     case 'SlidersHorizontal': return <SlidersHorizontal size={size} />;
     case 'History': return <History size={size} />;
     case 'CreditCard': return <CreditCard size={size} />;
+    case 'QrCode': return <QrCode size={size} />;
+    case 'Calendar':
+    case 'CalendarDays': return <CalendarDays size={size} />;
     default: return <Tag size={size} />;
   }
 }
@@ -134,6 +141,10 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
   const [showStockTakeDialog, setShowStockTakeDialog] = useState(false);
   const [showBarcodeDialog, setShowBarcodeDialog] = useState(false);
   const [selectedBarcodeProduct, setSelectedBarcodeProduct] = useState<Product | null>(null);
+  const [showTableDialog, setShowTableDialog] = useState(false);
+  const [checkoutTableData, setCheckoutTableData] = useState<{ tableSessionId: string; items: any[]; tableNumber: string } | null>(null);
+  const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [checkoutAppointmentData, setCheckoutAppointmentData] = useState<{ appointmentId: string; appointmentCode: string; items: any[] } | null>(null);
   const branch = profile.branches.find(item => item.id === branchId);
   const [notice, setNotice] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -161,6 +172,8 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
     switch (key) {
       case 'dashboard': setShowDashboardDialog(true); break;
       case 'pos': setShowCheckoutPreview(true); break;
+      case 'tables': setShowTableDialog(true); break;
+      case 'appointments': setShowBookingDialog(true); break;
       case 'shifts': setShowShiftDialog(true); break;
       case 'sales_history': setShowSalesHistory(true); break;
       case 'customers': setShowCustomerDialog(true); break;
@@ -230,12 +243,26 @@ function Workspace({ profile, logout }: { profile: Profile; logout: () => Promis
       </section><footer className="page-footer">RubTang POS <span>พื้นที่ทำงานของ {profile.tenant.name}</span></footer>
     </main></div>{showForm && <ProductForm product={editProduct} close={() => { setShowForm(false); setEditProduct(undefined); }} saved={() => void saved()} />}
     {stockProduct && branch && <StockForm product={stockProduct} branch={branch} close={() => { setStockProduct(undefined); void refreshStock(); }} saved={() => { setStockProduct(undefined); setNotice('บันทึกรายการสต็อกเรียบร้อยแล้ว'); void refreshStock(); }} />}
-    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}{showBranchesStaff && <BranchesStaffDialog close={() => setShowBranchesStaff(false)} onBranchCreated={async () => { await queryClient.invalidateQueries({ queryKey: ['profile'] }); }} />}{showSetupPreview && <SetupPreview close={() => setShowSetupPreview(false)} />}{showCheckoutPreview && branch && <CheckoutPreview branch={branch} close={() => setShowCheckoutPreview(false)} onSaleCompleted={() => { void refreshStock(); setNotice('บันทึกการขายและตัดสต็อกเรียบร้อยแล้ว'); }} />}{showShiftDialog && branch && <ShiftDialog branch={branch} close={() => setShowShiftDialog(false)} />}{showTransferDialog && branch && <TransferDialog branch={branch} profile={profile} close={() => setShowTransferDialog(false)} />}{showStockTakeDialog && branch && <StockTakeDialog branch={branch} profile={profile} close={() => { setShowStockTakeDialog(false); void refreshStock(); }} />}{showBarcodeDialog && <BarcodeDialog products={products.data ?? []} storeName={profile.tenant.name} initialSelectedProduct={selectedBarcodeProduct} onClose={() => { setShowBarcodeDialog(false); setSelectedBarcodeProduct(null); }} />}{showSalesHistory && branch && <SalesHistoryDialog branch={branch} role={profile.role} close={() => setShowSalesHistory(false)} />}{showDashboardDialog && branch && <DashboardDialog branch={branch} close={() => setShowDashboardDialog(false)} />}{showReportsPreview && <ReportsPreview close={() => setShowReportsPreview(false)} />}{showReportDialog && branch && <ReportDialog branch={branch} profile={profile} close={() => setShowReportDialog(false)} />}{showTransferPreview && <TransferPreview close={() => setShowTransferPreview(false)} />}{showPurchaseOrderPreview && <PurchaseOrderPreview close={() => setShowPurchaseOrderPreview(false)} />}{showCustomerDialog && <CustomerDialog close={() => setShowCustomerDialog(false)} />}{showPromotionDialog && branch && <PromotionDialog branch={branch} profile={profile} close={() => setShowPromotionDialog(false)} />}{showPromotionPreview && <PromotionPreview close={() => setShowPromotionPreview(false)} />}{showSupplierDialog && <SupplierDialog profile={profile} close={() => setShowSupplierDialog(false)} />}{showPurchaseOrderDialog && branch && <PurchaseOrderDialog branch={branch} profile={profile} close={() => setShowPurchaseOrderDialog(false)} />}{showShiftPreview && <ShiftPreview close={() => setShowShiftPreview(false)} />}{showLineDialog && <LineDialog profile={profile} close={() => setShowLineDialog(false)} />}{showSupplierPreview && <SupplierPreview close={() => setShowSupplierPreview(false)} />}{showMasterDataDialog && <MasterDataDialog profile={profile} close={() => setShowMasterDataDialog(false)} />}{showAuditDialog && <AuditDialog profile={profile} close={() => setShowAuditDialog(false)} />}{showSubscriptionPreview && <SubscriptionPreview close={() => setShowSubscriptionPreview(false)} />}
+    {showHistory && branch && <HistoryDialog branch={branch} close={() => setShowHistory(false)} />}{showBranchesStaff && <BranchesStaffDialog close={() => setShowBranchesStaff(false)} onBranchCreated={async () => { await queryClient.invalidateQueries({ queryKey: ['profile'] }); }} />}{showSetupPreview && <SetupPreview close={() => setShowSetupPreview(false)} />}{showCheckoutPreview && branch && <CheckoutPreview branch={branch} initialCart={checkoutTableData?.items || checkoutAppointmentData?.items} tableSessionId={checkoutTableData?.tableSessionId} tableNumber={checkoutTableData?.tableNumber} appointmentId={checkoutAppointmentData?.appointmentId} appointmentCode={checkoutAppointmentData?.appointmentCode} close={() => { setShowCheckoutPreview(false); setCheckoutTableData(null); setCheckoutAppointmentData(null); }} onSaleCompleted={() => { void refreshStock(); setNotice('บันทึกการขายและตัดสต็อกเรียบร้อยแล้ว'); setCheckoutTableData(null); setCheckoutAppointmentData(null); }} />}{showTableDialog && branch && <TableDialog branch={branch} profile={profile} onClose={() => setShowTableDialog(false)} onCheckoutTable={(tableSessionId, items, tableNumber) => { setCheckoutTableData({ tableSessionId, items, tableNumber }); setShowCheckoutPreview(true); }} />}{showBookingDialog && branch && <BookingDialog branch={branch} profile={profile} onClose={() => setShowBookingDialog(false)} onCheckoutAppointment={(app) => { setCheckoutAppointmentData({ appointmentId: app.id, appointmentCode: app.bookingCode, items: [{ productId: app.serviceId, name: app.service.name, sku: `SVC-${app.service.id.slice(-4).toUpperCase()}`, price: Number(app.service.price), quantity: 1 }] }); setShowBookingDialog(false); setShowCheckoutPreview(true); }} />}{showShiftDialog && branch && <ShiftDialog branch={branch} close={() => setShowShiftDialog(false)} />}{showTransferDialog && branch && <TransferDialog branch={branch} profile={profile} close={() => setShowTransferDialog(false)} />}{showStockTakeDialog && branch && <StockTakeDialog branch={branch} profile={profile} close={() => { setShowStockTakeDialog(false); void refreshStock(); }} />}{showBarcodeDialog && <BarcodeDialog products={products.data ?? []} storeName={profile.tenant.name} initialSelectedProduct={selectedBarcodeProduct} onClose={() => { setShowBarcodeDialog(false); setSelectedBarcodeProduct(null); }} />}{showSalesHistory && branch && <SalesHistoryDialog branch={branch} role={profile.role} close={() => setShowSalesHistory(false)} />}{showDashboardDialog && branch && <DashboardDialog branch={branch} close={() => setShowDashboardDialog(false)} />}{showReportsPreview && <ReportsPreview close={() => setShowReportsPreview(false)} />}{showReportDialog && branch && <ReportDialog branch={branch} profile={profile} close={() => setShowReportDialog(false)} />}{showTransferPreview && <TransferPreview close={() => setShowTransferPreview(false)} />}{showPurchaseOrderPreview && <PurchaseOrderPreview close={() => setShowPurchaseOrderPreview(false)} />}{showCustomerDialog && <CustomerDialog close={() => setShowCustomerDialog(false)} />}{showPromotionDialog && branch && <PromotionDialog branch={branch} profile={profile} close={() => setShowPromotionDialog(false)} />}{showPromotionPreview && <PromotionPreview close={() => setShowPromotionPreview(false)} />}{showSupplierDialog && <SupplierDialog profile={profile} close={() => setShowSupplierDialog(false)} />}{showPurchaseOrderDialog && branch && <PurchaseOrderDialog branch={branch} profile={profile} close={() => setShowPurchaseOrderDialog(false)} />}{showShiftPreview && <ShiftPreview close={() => setShowShiftPreview(false)} />}{showLineDialog && <LineDialog profile={profile} close={() => setShowLineDialog(false)} />}{showSupplierPreview && <SupplierPreview close={() => setShowSupplierPreview(false)} />}{showMasterDataDialog && <MasterDataDialog profile={profile} close={() => setShowMasterDataDialog(false)} />}{showAuditDialog && <AuditDialog profile={profile} close={() => setShowAuditDialog(false)} />}{showSubscriptionPreview && <SubscriptionPreview close={() => setShowSubscriptionPreview(false)} />}
   </div>;
 }
 
 function App() {
   const queryClient = useQueryClient();
+
+  // If URL has table token or order path, render customer mobile view directly
+  const params = new URLSearchParams(window.location.search);
+  const tableToken = params.get('token') || params.get('table_session');
+  if (tableToken) {
+    return <CustomerOrderScreen sessionToken={tableToken} />;
+  }
+
+  // If URL has public booking parameter (?book=branchId or ?booking=branchId), render customer public booking view directly
+  const bookingBranchId = params.get('book') || params.get('booking');
+  if (bookingBranchId) {
+    return <PublicBookingScreen branchId={bookingBranchId} />;
+  }
+
   const profile = useQuery({ queryKey: ['profile'], queryFn: () => api<Profile>('/auth/me') });
   if (profile.isPending) return <div className="loading"><Brand /><p>กำลังเชื่อมต่อร้านของคุณ…</p></div>;
   if (profile.isError) {
